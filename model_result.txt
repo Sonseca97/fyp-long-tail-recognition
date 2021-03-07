@@ -1,0 +1,2 @@
+ImageNet_LT_30_second_fc_M_from_1_nnpairwise_1.0_0.1_0.1
+dot_product softmax: 

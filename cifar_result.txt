@@ -1,0 +1,38 @@
+0.004 
+val Class Accuracy: [0.971,0.980,0.799,0.744,0.738,0.561,0.582,0.396,0.254,0.248]
+Best Prec@1: 64.170
+
+0.004 mixup
+val Class Accuracy: [0.977,0.988,0.841,0.760,0.743,0.596,0.657,0.460,0.256,0.210]
+Best Prec@1: 67.180
+
+0.001 
+val Class Accuracy: [0.973,0.980,0.796,0.737,0.639,0.383,0.319,0.252,0.046,0.016]
+Best Prec@1: 55.090
+
+0.001 mixup
+val Class Accuracy: [0.987,0.986,0.796,0.672,0.563,0.370,0.377,0.294,0.015,0.002]
+Best Prec@1: 53.770
+
+0.01 
+val Class Accuracy: [0.964,0.984,0.835,0.758,0.785,0.638,0.636,0.624,0.458,0.439]
+Best Prec@1: 71.520
+
+0.01 mixup
+val Class Accuracy: [0.982,0.986,0.830,0.760,0.763,0.684,0.744,0.639,0.385,0.435]
+Best Prec@1: 73.670
+
+0.01 mixup resample
+val Class Accuracy: [0.944,0.985,0.820,0.722,0.785,0.718,0.794,0.720,0.510,0.472]
+Best Prec@1: 75.520
+
+0.01 resample
+val Class Accuracy: [0.947,0.976,0.838,0.760,0.804,0.560,0.672,0.615,0.412,0.443]
+Best Prec@1: 71.740
+
+ Evaluation_accuracy_micro_top1: 0.344 
+ Averaged F-measure: 0.304 
+ Many_shot_accuracy_top1: 0.574 Median_shot_accuracy_top1: 0.249 Low_shot_accuracy_top1: 0.031 
+
+57.4     24.9    3.1     34.4
+

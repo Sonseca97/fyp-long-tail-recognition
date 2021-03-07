@@ -1,0 +1,25 @@
+1. KNN to adjust weight on dot product
+2. TODO : assignment module no feature normalizaition! tried 
+3. TODO: using correctness to calculate klloss tried
+4. Assginemtn module as long as knn right
+---------------------to do ------------------------
+5. precision recall curve for assignment module to assign threshold
+6. erm try use val set as training to see if anything wrong 
+7. feature engineering on the asm module
+8. oversample
+9. Along dot product training, second branch on binary classification
+
+10: todo: check center delta update
+11. asm balance, create data loader first 
+
+
+
+--------problem-----------
+fluctuate??
+
+0.17->  90.1 -> 0.17
+
+[[1,2]]
+
+[[2,3,4],
+[3,4,5]]
