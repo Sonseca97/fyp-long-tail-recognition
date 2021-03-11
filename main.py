@@ -2,7 +2,7 @@ import os
 import argparse
 import pprint
 from data import dataloader
-from run_networks_analysis import model
+from run_networks import model
 import warnings
 import pandas as pd
 from utils import source_import
@@ -73,9 +73,10 @@ parser.add_argument('--assignment_module', default=False, action='store_true')
 parser.add_argument('--trainable_logits_weight', default=False, action='store_true')
 parser.add_argument('--second_dotproduct', default=False, action='store_true')
 parser.add_argument('--asm_description', type=str)
-parser.add_argument('--weight_norm', default=False, action='store_true')
-parser.add_argument('--memory_bank', default=False, action='store_true')
+parser.add_argument('--weight_norm', default=False, action='store_true', help='norm weight of fc layer')
+parser.add_argument('--memory_bank', default=False, action='store_true', help='memory bank of all features')
 parser.add_argument('--lr_scheduler', type=str, default='cos')
+parser.add_argument('--second_head_alpha', type=float, default=0.1, help='trade-off loss hyper-parameters of of student model')
 args = parser.parse_args()
 os.environ['CUDA_VISIBLE_DEVICES']=args.gpu
 

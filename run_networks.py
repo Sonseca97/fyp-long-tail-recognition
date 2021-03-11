@@ -32,7 +32,7 @@ from sklearn.metrics import (
 )
 from data.dataloader import ASM_Dataset
 from data.ClassAwareSampler import get_sampler
-from thop import clever_format, profile
+# from thop import clever_format, profile
 
 
 deterministic = False
@@ -80,6 +80,7 @@ class model ():
         self.cosloss = nn.CosineEmbeddingLoss()
         self.contraloss = ContraLoss()
         self.kl_div_loss = nn.KLDivLoss(reduction='batchmean')
+        # self.kl_div_loss = nn.KLDivLoss()
         # self.ldamloss = LDAMLoss(cls_count = self.label_counts)
         self.dloss_weight = None
         if self.args.second_fc:
@@ -102,7 +103,8 @@ class model ():
             str(self.args.secondlr) if self.args.second_fc else None,
             str(self.args.description) if self.args.description is not None else None,
             'merge_logits' if self.args.merge_logits else None,
-            str(self.args.mixup_alpha) if self.args.mixup else None
+            str(self.args.mixup_alpha) if self.args.mixup else None,
+            str(self.args.second_head_alpha) if self.args.second_dotproduct else None
         ]
         self.args.expname = '_'.join(elem for elem in expname_list if elem is not None)
         if self.args.path is not None:
@@ -276,6 +278,12 @@ class model ():
                 'momentum': 0.9,
                 'weight_decay': 0.0005
             })
+            # self.second_optimizer = torch.optim.SGD(
+            #     self.networks['second_dot_product'].parameters(),
+            #     lr=0.1,
+            #     momentum=0.9,
+            #     weight_decay=0.0005
+            # )
         
         if self.args.memory_bank:
             fname = os.path.join(self.training_opt['log_dir'], '{}_memorybank.pkl'.format(self.args.expname))
@@ -392,7 +400,7 @@ class model ():
         self.inputs_augment = None
         # Calculate Features
         self.features, self.feature_maps, self.attention_weight = self.networks['feat_model'](inputs)
-        
+     
         # for i in range(len(self.attention_weight)):
         #     self.per_cls_attention_weight[labels[i].item()] += self.attention_weight[i].item()
         # using manifold mixup
@@ -417,27 +425,30 @@ class model ():
 
             else:
                 self.logits = self.networks['classifier'](self.normalized_features*20 if self.args.feat_norm else self.features)
-
+            
             self.correctness_linear = self.logits.argmax(dim=1) == labels
             self.linear_output = F.log_softmax(self.logits / self.args.temperature, dim=1) 
             
+            feature_no_grad = self.features.data
             if self.args.second_dotproduct:
-                self.second_logits = self.networks['second_dot_product'](self.features.detach())
+                self.second_logits = self.networks['second_dot_product'](feature_no_grad)
                 self.second_linear_output = F.log_softmax(self.second_logits/self.args.temperature, dim=1)
             
 
-
             if self.centers is not None:
+                # calculate distance logits 
                 self.logits_dist = self.knnclassifier(self.fc_features if self.args.second_fc else self.features, self.centers)
+                # calculate eta for scaling 
                 eta = torch.max(self.logits, dim=1)[0] / torch.max(self.logits_dist, dim=1)[0]
                 # topk, _ = torch.topk(self.logits_dist, k=self.top_k, dim=1)
+                # calculate 
                 if self.args.scaling_logits:
                     self.logits_dist = scaling(self.logits_dist, self.logits)
                 self.correctness_knn = self.logits_dist.argmax(dim=1) == labels
                 self.target_one_hot = self.correctness_knn
                 # print(self.target_one_hot.unsqueeze(1).shape)
                 # knn_output all 0.001
-                self.knn_output = F.softmax(self.logits_dist / self.args.temperature, dim=1)
+                self.knn_output = (F.softmax(self.logits_dist / self.args.temperature, dim=1)).data
           
             if self.args.assignment_module:
                 self.asm_output, self.asm_target = self.networks['asm'](self.normalized_features, self.logits, self.logits_dist, labels)
@@ -463,7 +474,7 @@ class model ():
                 # self.logits = self.args.w1 * self.logits + self.args.w2 * self.logits_dist.detach()
 
 
-            if phase != 'train':
+            if phase == 'test':
                 if eval_phase == 'softmax':
                     pass 
                 elif eval_phase == 'second dot product':
@@ -500,13 +511,12 @@ class model ():
             self.criterion_optimizer.zero_grad()
         # Back-propagation from loss outputs
         self.loss.backward()
-    
         # Step optimizers
         self.model_optimizer.step()
         if self.criterion_optimizer:
             self.criterion_optimizer.step()
-        
-
+    
+       
     def batch_loss(self, labels, phase='train'):
 
         if self.args.assignment_module:
@@ -520,7 +530,11 @@ class model ():
         self.loss_perf = self.criterions['PerformanceLoss'](self.logits, labels) \
                     * self.criterion_weights['PerformanceLoss']
 
-        # calculate center loss
+        
+        '''
+            code for previous second head
+            NOT in anymore
+        '''
         if self.centers is not None and self.args.center_loss:
             if self.args.second_fc and self.args.ce_dist==False:
                 # self.center_loss = self.contraloss(self.fc_features, self.centers[labels]) * self.args.lam
@@ -542,12 +556,21 @@ class model ():
             self.center_loss = 0
             self.klloss = 0
 
+
         '''
             Add KL Loss for training
         '''
         if self.args.second_dotproduct and self.centers is not None and phase=='train':
-            self.second_head_loss = 0.2 * self.criterions['PerformanceLoss'](self.second_logits, labels) + 0.8 * self.kl_div_loss(self.second_linear_output, self.knn_output) \
-                        * self.args.temperature * self.args.temperature
+            tail = torch.tensor(self.tail+self.median).to(self.device)
+            mask = torch.tensor([True if i in tail else False for i in labels])
+            if mask.sum() > 0:
+                self.second_head_loss = self.args.second_head_alpha * self.criterions['PerformanceLoss'](self.second_logits[mask], labels[mask]) \
+                            + (1-self.args.second_head_alpha) * self.kl_div_loss(self.second_linear_output[mask], self.knn_output[mask]) \
+                            * 1
+            else:
+                self.second_head_loss = 0
+                        # * self.args.temperature * self.args.temperature
+            self.second_head_loss += self.criterions['PerformanceLoss'](self.second_logits[~mask], labels[~mask])        
            
         else:
             self.second_head_loss = 0
@@ -564,8 +587,8 @@ class model ():
            
         a = 1
         b = 5
-        self.loss = self.loss_perf + b * self.klloss + self.center_loss + self.second_head_loss
-        # print(self.loss)
+        self.loss = self.loss_perf + self.klloss + self.center_loss + self.second_head_loss
+      
     def batch_loss_mixup(self, targets_a, targets_b, lam):
         # mixup criterion
         if 'enrich' in self.args.mixup_type:
@@ -583,6 +606,7 @@ class model ():
         # randomly initialize centers
         if self.args.m_from==0:
             print("initializing centroids")
+            # torch.rand(1000, 512)
             self.centers = torch.rand(self.training_opt['num_classes'], self.training_opt['feature_dim']).to(self.device) - 0.5
 
         print_write(print_str, self.log_file)
@@ -637,10 +661,11 @@ class model ():
             image_t = 0
             start = 0
             for step, (inputs, labels, _) in enumerate(self.data['train']):
+        
                 # Break when step equal to epoch step
                 if step == self.epoch_steps: #or image_t==self.training_data_num:
                     break
-              
+                    
             
                 inputs, labels = inputs.to(self.device), labels.to(self.device) # 128, 3, 224, 224
                 ori_labels = labels
@@ -877,10 +902,10 @@ class model ():
                         f.close()
 
         if self.args.trainable_logits_weight:
-            eval_list = ['merge_logits']
+            eval_list = ['merge_logits'] if phase=='val' else ['softmax', 'merge_logits']
         if self.args.assignment_module:
             eval_list = ['softmax']
-        if self.args.second_dotproduct:
+        if self.args.second_dotproduct and phase=='test':
             eval_list.append("second dot product")
         for eval_phase in eval_list:
             self.val_loss = AverageMeter('val_loss', ":4e")
@@ -922,7 +947,14 @@ class model ():
                         self.total_logits_dist = torch.cat((self.total_logits_dist, self.logits_dist))
                         self.assignment_pred = torch.cat((self.assignment_pred, self.asm_output))
                         self.total_targets = torch.cat((self.total_targets, self.asm_target.cpu()))
-         
+
+            # softmax_logits = '/home/lizhaochen/fyp-long-tail-recognition/logs/ImageNet_LT/stage1/ImageNet_LT_90_coslr/ImageNet_LT_90_coslr_logits_ibs.pkl'
+            # llw_logits = '/home/lizhaochen/fyp-long-tail-recognition/logs/ImageNet_LT/stage1/ImageNet_LT_90_coslr/ImageNet_LT_90_coslr_logits_reweight.pkl'
+            # with open(softmax_logits, 'rb') as f:
+            #     z_s = pickle.load(f)
+            # with open(llw_logits, 'rb') as f:
+            #     z_l = pickle.load(f)
+            # self.total_logits = torch.from_numpy(z_s+z_l).to(self.device)
             # df = pd.DataFrame(self.total_logits.detach().tolist(), columns=[i for i in range(1000)])
             # df.to_csv('./analysis/knn_logits.csv')
             # df = pd.DataFrame(F.softmax(self.total_logits.detach(), dim=1).tolist(), columns=[i for i in range(1000)])
@@ -934,8 +966,29 @@ class model ():
             # df.to_csv('./analysis/dp_prob.csv')
             # sum of two logits
             # self.sum_logits = self.total_logits_dot + self.total_logits
-            
+            # if eval_phase == 'final_centroids':
+            #     with open(os.path.join(self.training_opt['log_dir'], '{}_logits_knn_train.pkl'.format(self.args.expname)), 'wb') as f:
+            #             pickle.dump(self.total_logits.cpu().numpy(), f)
+            # elif eval_phase == 'merge_logits':
+            #     with open(os.path.join(self.training_opt['log_dir'], '{}_logits_reweight_train.pkl'.format(self.args.expname)), 'wb') as f:
+            #             pickle.dump(self.total_logits.cpu().numpy(), f)
+            # elif eval_phase == 'softmax':
+            #     with open(os.path.join(self.training_opt['log_dir'], '{}_logits_train.pkl'.format(self.args.expname)), 'wb') as f:
+            #             pickle.dump(self.total_logits.cpu().numpy(), f)
+            #     with open(os.path.join(self.training_opt['log_dir'], '{}_labels_train.pkl'.format(self.args.expname)), 'wb') as f:
+            #             pickle.dump(self.total_labels.cpu().numpy(), f)
+
             probs, preds = F.softmax(self.total_logits.detach(), dim=1).max(dim=1)
+            # if eval_phase == 'final_centroids':
+            #     # with open(os.path.join(self.training_opt['log_dir'], '{}_preds_knn.pkl'.format(self.args.expname)), 'wb') as f:
+            #     #     pickle.dump(preds.cpu().numpy(), f)
+            #     with open(os.path.join(self.training_opt['log_dir'], '{}_probs_knn.pkl'.format(self.args.expname)), 'wb') as f:
+            #         pickle.dump(F.softmax(self.total_logits.detach(), dim=1).cpu().numpy(), f)
+            # if eval_phase == 'softmax':
+            #     with open(os.path.join(self.training_opt['log_dir'], '{}_probs_ibs.pkl'.format(self.args.expname)), 'wb') as f:
+            #         pickle.dump(F.softmax(self.total_logits.detach(), dim=1).cpu().numpy(), f)
+    
+
             _, preds_topk = F.softmax(self.total_logits.detach(), dim=1).topk(k=self.args.k, dim=1, largest=True, sorted=True)
             if self.args.memory_bank:
                 with open(os.path.join(self.training_opt['log_dir'], '{}_testlabels.pkl'.format(self.args.expname)), 'wb') as f:
@@ -1545,3 +1598,32 @@ class model ():
                 with open(os.path.join(self.training_opt['log_dir'], '{}_final.pkl'.format(self.args.expname)), 'wb') as f:
                     pickle.dump(cfeats, f)
                 print('Done')
+
+
+
+if __name__ == '__main__':
+    criterion = nn.CrossEntropyLoss()
+    x = torch.rand(3, 5)
+    w0 = nn.Linear(5, 64)
+    w1 = nn.Linear(64, 10)
+    w2 = nn.Linear(64, 10)
+    optimizer = torch.optim.SGD([
+        {'params': w0.parameters()},
+        {'params': w1.parameters()},
+        {'params': w2.parameters()}
+    ],lr=0.01)
+    for i in range(5):
+        a = w0(x)
+        out1 = w1(a)
+        out2 = w2(a.data)
+        label = torch.tensor([2, 3, 8])
+        loss1 = criterion(out1, label)
+        loss2 = criterion(out2, label)
+        
+        
+        # print(loss2)
+        finalloss = loss1+loss2
+        optimizer.zero_grad()
+        loss1.backward()
+        loss2.backward()
+        optimizer.step()

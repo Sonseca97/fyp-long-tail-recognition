@@ -2,6 +2,7 @@ from torch.utils.data import Dataset, DataLoader, ConcatDataset
 from torchvision import transforms
 import os
 from PIL import Image
+import re
 # Data transformation with augmentation
 RGB_statistics = {
     'iNaturalist18': {
@@ -65,7 +66,7 @@ class LT_Dataset(Dataset):
 
         path = self.img_path[index]
         if 'val' in path.split('/'):
-            path = path[:19]+path[29:]
+            path = re.sub(r'n\d{8}\/', '', path)
         label = self.labels[index]
         with open(path, 'rb') as f:
             sample = Image.open(f).convert('RGB')
