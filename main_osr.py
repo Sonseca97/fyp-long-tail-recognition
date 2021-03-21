@@ -1,8 +1,8 @@
 import os
 import argparse
 import pprint
-from data import dataloader
-from run_networks_old import model
+from data import dataloader_osr
+from run_networks import model
 import warnings
 import pandas as pd
 from utils import source_import
@@ -15,16 +15,24 @@ from datetime import datetime
 # LOAD CONFIGURATIONS
 # python main.py --config ./config/ImageNet_LT/stage_1.py
 data_root = {'ImageNet': '/mnt/lizhaochen', #change this
-             'Places': '/home/public/dataset/Places365'}
+             'Places': '/home/public/dataset/Places365',
+             'iNaturalist18': '/mnt/lizhaochen/iNaturalist18'}
 parser = argparse.ArgumentParser()
+parser.add_argument('--config', default='./config/ImageNet_LT/stage_1.py')
 parser.add_argument('--dataset', default='ImageNet_LT', type=str)
 parser.add_argument('--test', default=False, action='store_true')
 parser.add_argument('--test_open', default=False, action='store_true')
 parser.add_argument('--output_logits', default=False)
 parser.add_argument('--tensorboard', default=False, action='store_true')
+
+# ---------Mixup Parameters-------
 parser.add_argument('--mixup', default=False, action='store_true')
+parser.add_argument('--mixup_type', default='mixup_original', type=str)
+parser.add_argument('--mixup_alpha', default=0.1, type=float)
+
+
 parser.add_argument('--knn', default=False, action='store_true')
-parser.add_argument('--feat_type', type=str, default='l2n')
+parser.add_argument('--feat_type', type=str, default='un')
 parser.add_argument('--dist_type', type=str, default='cos')
 parser.add_argument('--count_csv', type=str)
 parser.add_argument('--acc_csv',type=str)
@@ -59,13 +67,18 @@ parser.add_argument('--scaling_logits', default=False, action='store_true')
 parser.add_argument('--center_loss', default=False, action='store_true')
 parser.add_argument('--cal_knn_val', default=False, action='store_true')
 parser.add_argument('--log_w', default=False, action='store_true')
-parser.add_argument('--temperature', default=10.0, type=float)
+parser.add_argument('--temperature', default=1.0, type=float)
 parser.add_argument('--alpha_loss', default=0.7, type=float)
 parser.add_argument('--assignment_module', default=False, action='store_true')
 parser.add_argument('--trainable_logits_weight', default=False, action='store_true')
+parser.add_argument('--second_dotproduct', default=False, action='store_true')
+parser.add_argument('--asm_description', type=str)
+parser.add_argument('--weight_norm', default=False, action='store_true', help='norm weight of fc layer')
+parser.add_argument('--memory_bank', default=False, action='store_true', help='memory bank of all features')
+parser.add_argument('--lr_scheduler', type=str, default='cos')
+parser.add_argument('--second_head_alpha', type=float, default=0.1, help='trade-off loss hyper-parameters of of student model')
 args = parser.parse_args()
-# os.environ['CUDA_VISIBLE_DEVICES']=args.gpu
-args.config = './config/{}/stage_1.py'.format(args.dataset)
+os.environ['CUDA_VISIBLE_DEVICES']=args.gpu
 
 def update(config, args):
     # Change parameters
@@ -95,7 +108,6 @@ if args.resample:
 relatin_opt = config['memory']
 dataset = training_opt['dataset']
 
-
 if not os.path.isdir(training_opt['log_dir']):
     os.makedirs(training_opt['log_dir'])
 
@@ -111,17 +123,32 @@ if not test_mode: # test mode is false
 
     sampler_defs = training_opt['sampler']
     if sampler_defs:
-        sampler_dic = {'sampler': source_import(sampler_defs['def_file']).get_sampler(),
-                    'num_samples_cls': sampler_defs['num_samples_cls']}
+        if sampler_defs['type'] == 'ClassAwareSampler':
+            sampler_dic = {
+                'sampler': source_import(sampler_defs['def_file']).get_sampler(),
+                'params': {'num_samples_cls': sampler_defs['num_samples_cls']}
+            }
+        elif sampler_defs['type'] in ['MixedPrioritizedSampler',
+                                      'ClassPrioritySampler']:
+            sampler_dic = {
+                'sampler': source_import(sampler_defs['def_file']).get_sampler(),
+                'params': {k: v for k, v in sampler_defs.items() \
+                           if k not in ['type', 'def_file']}
+            }
     else:
         sampler_dic = None
 
-    data = {x: dataloader.load_data(data_root=data_root[dataset.rstrip('_LT')], dataset=dataset, phase=x,
+    if dataset == 'iNaturalist18':
+        phase_bank = ['train', 'val', 'train_plain']
+    else:
+        phase_bank = ['train', 'val', 'train_plain', 'test']
+
+    data = {x: dataloader_osr.load_data(data_root=data_root[dataset.rstrip('_LT')], dataset=dataset, phase=x,
                                     batch_size=training_opt['batch_size'],
-                                    sampler_dic=sampler_dic,
+                                    sampler_dic=sampler_dic if x!='train_plain' else None,
                                     num_workers=training_opt['num_workers'])
-            for x in (['train', 'val', 'train_plain', 'test'])}# if relatin_opt['init_centroids'] else ['train', 'val'])}
-    
+            for x in (phase_bank)}# if relatin_opt['init_centroids'] else ['train', 'val'])}
+
     lbs = data['train'].dataset.labels
     counts = []
     for i in range(1000):
@@ -136,18 +163,23 @@ if not test_mode: # test mode is false
 
     training_model = model(args, config, data, test=False)
     print("entering train function in run_networks")
-    training_model.train()
-    training_model.eval(phase='test', openset=test_open)
+    if args.assignment_module:
+        training_model.train_asm()
+    else:
+        training_model.train()
+    
+    if dataset != 'iNaturalist18':
+        training_model.eval(phase='test', openset=test_open)
 
 else:
 
     warnings.filterwarnings("ignore", "(Possibly )?corrupt EXIF data", UserWarning)
 
     print('Under testing phase, we load training data simply to calculate training data number for each class.')
-    splits = ['train', 'test']
+    splits = ['train', 'test', 'train_plain']
     if args.knn:
         splits.append('train_plain')
-    data = {x: dataloader.load_data(data_root=data_root[dataset.rstrip('_LT')], dataset=dataset, phase=x,
+    data = {x: dataloader_osr.load_data(data_root=data_root[dataset.rstrip('_LT')], dataset=dataset, phase=x,
                                     batch_size=training_opt['batch_size'],
                                     sampler_dic=None,
                                     test_open=test_open,

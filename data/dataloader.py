@@ -3,6 +3,7 @@ from torchvision import transforms
 import os
 from PIL import Image
 import re
+from data.ImbalanceCIFAR import IMBALANCECIFAR10, IMBALANCECIFAR100
 # Data transformation with augmentation
 RGB_statistics = {
     'iNaturalist18': {
@@ -76,7 +77,7 @@ class LT_Dataset(Dataset):
         return sample, label, path
 
 # Load datasets
-def load_data(data_root, dataset, phase, batch_size, sampler_dic=None, num_workers=8, test_open=False, shuffle=True):
+def load_data(data_root, dataset, phase, batch_size, sampler_dic=None, num_workers=8, cifar_imb_ratio=None, test_open=False, shuffle=True):
 
     txt = './data/%s/%s_%s.txt'%(dataset, dataset, (phase if phase != 'train_plain' else 'train'))
  
@@ -94,8 +95,14 @@ def load_data(data_root, dataset, phase, batch_size, sampler_dic=None, num_worke
         transform = get_data_transform(phase, rgb_mean, rgb_std, key)
 
     # print('Use data transformation:', transform)
-
-    set_ = LT_Dataset(data_root, txt, transform)
+    if dataset == 'CIFAR10_LT':
+        print('====> CIFAR10 Imbalance Ratio: ', cifar_imb_ratio)
+        set_ = IMBALANCECIFAR10(phase, imbalance_ratio=cifar_imb_ratio, root=data_root)
+    elif dataset == 'CIFAR100_LT':
+        print('====> CIFAR100 Imbalance Ratio: ', cifar_imb_ratio)
+        set_ = IMBALANCECIFAR100(phase, imbalance_ratio=cifar_imb_ratio, root=data_root)
+    else:
+        set_ = LT_Dataset(data_root, txt, transform)
 
     if phase == 'test' and test_open:
         open_txt = './data/%s/%s_open.txt'%(dataset, dataset)

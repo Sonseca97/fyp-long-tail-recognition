@@ -5,6 +5,7 @@ from sklearn.metrics import f1_score, classification_report
 import importlib
 import pdb
 import math
+import pickle as pkl 
 import torch.nn.functional as F
 
 class AverageMeter(object):
@@ -219,7 +220,8 @@ def compute_center_loss(features, centers, targets, loss, device):
     return center_loss
 
 
-def get_center_delta(features, centers, targets, alpha, device):
+def get_center_delta(features, centers, targets, alpha, device, head):
+  
     # implementation equation (4) in the center-loss paper
     features = features.view(features.size(0), -1)
     targets, indices = torch.sort(targets)
@@ -248,12 +250,22 @@ def get_center_delta(features, centers, targets, alpha, device):
     same_class_feature_count = torch.sum(
             targets_repeat == uni_targets_repeat, dim=1).float().unsqueeze(1)
 
+    '''
+        create mask
+        HEAD: 0.999
+        MEDIAN/TAIL: 0.99
+    '''
+    alpha = torch.tensor([0.999 if idx.data in head else 0.99 for idx in uni_targets]).unsqueeze(1).to(device)
+   
     # delta_centers = delta_centers / (same_class_feature_count+1) * alpha
-    delta_centers = delta_centers / (same_class_feature_count) * alpha
+
+    delta_centers = (delta_centers / (same_class_feature_count)) * alpha
   
     result = torch.zeros_like(centers)
+
    
     result[uni_targets, :] = delta_centers
+
     return result
     
 # def dataset_dist (in_loader):
@@ -268,6 +280,22 @@ def get_center_delta(features, centers, targets, alpha, device):
 #         distribution.append((l, len(label_list[label_list == l])/total_num))
 
 #     return distribution
+
+
+def get_shot_list(path='ImageNet_shots.pkl'):
+    with open(path, 'rb') as f:
+        shot_list = pkl.load(f)
+        # shot_list['many_median_shot'] = shot_list['many_shot'] + shot_list['median_shot']
+        return shot_list
+
+def map_classid_and_label(shot_list):
+    classid2label = {}
+    label2classid = {}
+    for label, classid in enumerate(shot_list):
+        classid2label[classid] = label
+        label2classid[label] = classid
+
+    return classid2label, label2classid
 
 if __name__ == '__main__':
     features = torch.tensor([[1.,2.,3.], [2.,1.,3.], [3.,3.,3]])

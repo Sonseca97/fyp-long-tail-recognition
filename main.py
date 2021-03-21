@@ -14,12 +14,13 @@ from datetime import datetime
 # ================
 # LOAD CONFIGURATIONS
 # python main.py --config ./config/ImageNet_LT/stage_1.py
-data_root = {'ImageNet': '/mnt/lizhaochen', #change this
+data_root = {'ImageNet': '/mnt/lizhaochen/dataset', #change this
              'Places': '/home/public/dataset/Places365',
-             'iNaturalist18': '/mnt/lizhaochen/iNaturalist18'}
+             'iNaturalist18': '/mnt/lizhaochen/iNaturalist18',
+             'CIFAR10': './data/CIFAR10',
+             'CIFAR100': './data/CIFAR100'}
 parser = argparse.ArgumentParser()
 parser.add_argument('--config', default='./config/ImageNet_LT/stage_1.py')
-parser.add_argument('--dataset', default='ImageNet_LT', type=str)
 parser.add_argument('--test', default=False, action='store_true')
 parser.add_argument('--test_open', default=False, action='store_true')
 parser.add_argument('--output_logits', default=False)
@@ -71,14 +72,19 @@ parser.add_argument('--temperature', default=1.0, type=float)
 parser.add_argument('--alpha_loss', default=0.7, type=float)
 parser.add_argument('--assignment_module', default=False, action='store_true')
 parser.add_argument('--trainable_logits_weight', default=False, action='store_true')
+parser.add_argument('--logits_asm', default=False, action='store_true')
+# -----------------second head for knowledge distillation
 parser.add_argument('--second_dotproduct', default=False, action='store_true')
 parser.add_argument('--asm_description', type=str)
 parser.add_argument('--weight_norm', default=False, action='store_true', help='norm weight of fc layer')
 parser.add_argument('--memory_bank', default=False, action='store_true', help='memory bank of all features')
 parser.add_argument('--lr_scheduler', type=str, default='cos')
 parser.add_argument('--second_head_alpha', type=float, default=0.1, help='trade-off loss hyper-parameters of of student model')
+parser.add_argument('--crt', default=False, action='store_true')
+parser.add_argument('--imb', type=float, default=None)
 args = parser.parse_args()
 os.environ['CUDA_VISIBLE_DEVICES']=args.gpu
+
 
 def update(config, args):
     # Change parameters
@@ -100,7 +106,7 @@ output_logits = args.output_logits
 
 config = source_import(args.config).config
 # config = update(config, args)
-
+config['training_opt']['cifar_imb_ratio'] = args.imb
 training_opt = config['training_opt']
 if args.resample:
     training_opt['sampler'] = {'def_file': './data/ClassAwareSampler.py', 'num_samples_cls': 4, 'type': 'ClassAwareSampler'}
@@ -117,6 +123,7 @@ config['label_info'] = None
 config['dloss_weight'] = args.dloss_weight
 config['memory_block'] = args.memory
 config['merge_logits'] = args.merge_logits
+args.dataset = training_opt['dataset']
 
 
 if not test_mode: # test mode is false
@@ -146,7 +153,8 @@ if not test_mode: # test mode is false
     data = {x: dataloader.load_data(data_root=data_root[dataset.rstrip('_LT')], dataset=dataset, phase=x,
                                     batch_size=training_opt['batch_size'],
                                     sampler_dic=sampler_dic if x!='train_plain' else None,
-                                    num_workers=training_opt['num_workers'])
+                                    num_workers=training_opt['num_workers'],
+                                    cifar_imb_ratio=training_opt['cifar_imb_ratio'] if 'cifar_imb_ratio' in training_opt else None)
             for x in (phase_bank)}# if relatin_opt['init_centroids'] else ['train', 'val'])}
 
     lbs = data['train'].dataset.labels
@@ -158,7 +166,7 @@ if not test_mode: # test mode is false
     #tail classes
     tail = counts[counts[0]<=20].index.tolist()
     median = counts[(counts[0]>20)&(counts[0]<100)].index.tolist()
-    head = counts[counts[0]>100].index.tolist()
+    head = counts[counts[0]>=100].index.tolist()
     config['label_info'] = [tail, median, head]
 
     training_model = model(args, config, data, test=False)
@@ -184,7 +192,8 @@ else:
                                     sampler_dic=None,
                                     test_open=test_open,
                                     num_workers=training_opt['num_workers'],
-                                    shuffle=False)
+                                    shuffle=False,
+                                    cifar_imb_ratio=training_opt['cifar_imb_ratio'] if 'cifar_imb_ratio' in training_opt else None)
             for x in splits}
 
     lbs = data['train'].dataset.labels

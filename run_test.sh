@@ -1,3 +1,0 @@
-# python main.py --second_dotproduct --m_from 1 --description ablation_second_head_t5 --scaling_logits --second_head_alpha 0.1 --temperature 5
-python main.py --second_dotproduct --m_from 1 --description ablation_second_head_t5 --scaling_logits --second_head_alpha 0.5 --temperature 5
-python main.py --second_dotproduct --m_from 1 --description ablation_second_head_t5 --scaling_logits --second_head_alpha 0.2 --temperature 5
