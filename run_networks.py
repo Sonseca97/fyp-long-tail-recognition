@@ -47,9 +47,8 @@ if deterministic:
 class model ():
 
     def __init__(self, args, config, data, test=False):
-        self.finetune_flag = False
+        self.finetune_flag = False # Set to True is in finetune stage
         self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-        # self.device = torch.device('cpu')
         self.config = config
         self.memory = self.config['memory']
         self.training_opt = self.config['training_opt']
@@ -88,9 +87,8 @@ class model ():
         if self.args.mixup:
             print("Using MixUp")
 
-        expname_list = [
-            self.args.dataset, 
-            str(self.training_opt['num_epochs']), 
+        expname_list = [ 
+            'e' + str(self.training_opt['num_epochs']), 
             self.args.mixup_type if self.args.mixup else None, 
             'manifold_mixup' if self.args.manifold_mixup else None,
             'resample' if self.training_opt['sampler'] is not None else None,
@@ -211,6 +209,7 @@ class model ():
                                                  'momentum': optim_params['momentum'],
                                                  'weight_decay': optim_params['weight_decay']})
         if self.args.trainable_logits_weight:
+            self.finetune_flag = True
             self.load_model()
             for key, model in self.networks.items():
                 for params in model.parameters():
@@ -238,6 +237,7 @@ class model ():
             })
 
         if self.args.crt:
+            self.finetune_flag = True
             self.load_model()
             for params in self.networks['feat_model'].parameters():
                 params.requires_grad = False
@@ -258,6 +258,7 @@ class model ():
                                                                 path=self.args.expname, norm_input=True)
 
         if self.args.assignment_module:
+            self.finetune_flag = True
             self.load_model()
             for key, model in self.networks.items():
                 for params in model.parameters():
@@ -697,15 +698,13 @@ class model ():
             # Iterate over dataset
             image_t = 0
             start = 0
+            # start = time.time()
             for step, (inputs, labels, _) in enumerate(self.data['train']):
-        
+                # print("time for dataloader: {}".format(time.time()-start))
                 # Break when step equal to epoch step
                 if step == self.epoch_steps: #or image_t==self.training_data_num:
                     break
                     
-                if self.args.debug:
-                    if step == 10:
-                        break
             
                 inputs, labels = inputs.to(self.device), labels.to(self.device) # 128, 3, 224, 224
                 ori_labels = labels
@@ -735,13 +734,13 @@ class model ():
                     # udpate centroids
                     if self.centers is not None \
                             and self.args.m_freeze==False \
-                            and self.args.assignment_module==False \
-                            and self.args.trainable_logits_weight==False:
+                            and self.args.finetune_flag == False
 
                         centers = self.centers
                         center_deltas = get_center_delta(
                             self.normalized_features.data if self.args.feat_norm else matrix_norm(self.features).data,
                             self.centers, labels, self.args.alpha, self.device, self.head)
+      
                         self.centers = centers - center_deltas
 
                     _, preds = torch.max(self.logits, 1)
@@ -791,7 +790,7 @@ class model ():
 
             # Set model modes and set scheduler
             # In training, step optimizer scheduler and set model to train()
-            if self.args.assignment_module==False or 'CIFAR' not in self.training_opt['dataset']:
+            if self.finetune_flag or 'CIFAR' not in self.training_opt['dataset']:
                 self.model_optimizer_scheduler.step()
                 if self.criterion_optimizer:
                     self.criterion_optimizer_scheduler.step()
@@ -800,36 +799,19 @@ class model ():
             # After every epoch, validation
             self.eval(phase='val',epoch=epoch)
             # Under validation, the best model need to be updated
-            if self.finetune_flag == False:
+            if self.args.assignment_module == False and self.args.logits_asm==False:
                 if self.eval_acc_mic_top1 > best_acc:
                     best_epoch = copy.deepcopy(epoch)
                     best_acc = copy.deepcopy(self.eval_acc_mic_top1)
-                    best_model_weights['feat_model'] = copy.deepcopy(self.networks['feat_model'].state_dict())
-                    best_model_weights['classifier'] = copy.deepcopy(self.networks['classifier'].state_dict())
-                    if self.args.second_fc:
-                        best_model_weights['second_fc'] = copy.deepcopy(self.networks['second_fc'].state_dict())
-                    if self.args.trainable_logits_weight:
-                        best_model_weights['w1'] = copy.deepcopy(self.networks['w1'].state_dict())
-                        best_model_weights['w2'] = copy.deepcopy(self.networks['w2'].state_dict())
-                    if self.args.assignment_module:
-                        best_model_weights['asm'] = copy.deepcopy(self.networks['asm'].state_dict())
-                    if self.args.second_dotproduct:
-                        best_model_weights['second_dot_product'] = copy.deepcopy(self.networks['second_dot_product'].state_dict())
+                    for key in base_model_weights.keys():
+                        base_model_weights[key] = copy.deepcopy(self.networks[key].state_dict())            
             else:
                 if self.f1 > best_f1:
                     best_epoch = copy.deepcopy(epoch)
                     best_f1 = copy.deepcopy(self.f1)
-                    best_model_weights['feat_model'] = copy.deepcopy(self.networks['feat_model'].state_dict())
-                    best_model_weights['classifier'] = copy.deepcopy(self.networks['classifier'].state_dict())
-                    if self.args.second_dotproduct:
-                        best_model_weights['second_dot_product'] = copy.deepcopy(self.networks['second_dot_product'].state_dict())
-                    if self.args.second_fc:
-                        best_model_weights['second_fc'] = copy.deepcopy(self.networks['second_fc'].state_dict())
-                    if self.args.trainable_logits_weight:
-                        best_model_weights['w1'] = copy.deepcopy(self.networks['w1'].state_dict())
-                        best_model_weights['w2'] = copy.deepcopy(self.networks['w2'].state_dict())
-                    if self.args.assignment_module:
-                        best_model_weights['asm'] = copy.deepcopy(self.networks['asm'].state_dict())
+                    for key in base_model_weights.keys():
+                        base_model_weights[key] = copy.deepcopy(self.networks[key].state_dict())
+
             self.best_model_weights =copy.deepcopy(best_model_weights)
 
             # if epoch is m_from: calculate centroids
@@ -847,8 +829,6 @@ class model ():
                 # self.model_optim_params_list = [self.model_optim_params_list[-1]]
                 # self.model_optimizer = optim.SGD(self.model_optim_params_list)
                
-
-
 
         print()
         print('Training Complete.')
@@ -870,7 +850,6 @@ class model ():
 
         print_write(print_str, self.log_file)
 
-        
         # Save the best model and best centroids if calculated
         if self.finetune_flag==False:
             cfeats = self.get_knncentroids()
@@ -879,7 +858,6 @@ class model ():
             with open(os.path.join(self.training_opt['log_dir'], '{}_final.pkl'.format(self.args.expname)), 'wb') as f:
                 pickle.dump(cfeats, f)
             print('Done')
-        # bot.send_message("Training Complete, Evaluation Ongoing..")
 
     def eval(self, phase='val', openset=False, epoch=0):
         print_str = ['Phase: %s' % (phase)]
@@ -1106,6 +1084,54 @@ class model ():
                 # print(self.total_targets.sum())
                 preds[knn_idx] = preds_knn[knn_idx]
                 # print((previous_pred == preds).sum())
+                
+            
+            # if self.knnclassifier is not None:
+            #     scaled_knn = F.softmax(self.total_logits.detach(), dim=1)
+                
+            #     scaled_linear = F.softmax(self.linear_total_logits.detach(), dim=1)
+            #     # scaled_knn = scaling(scaled_knn, scaled_linear)
+               
+            #     probs, preds = scaled_knn.max(dim=1)
+            #     mask_tail = [index for index, value in enumerate(self.total_labels) if value.item() in self.tail]
+            #     mask_median = [index for index, value in enumerate(self.total_labels) if value.item() in self.median]
+            #     mask_head = [index for index, value in enumerate(self.total_labels) if value.item() in self.head]
+            #     knn_probs = probs[mask_tail]
+            #     # print(probs[mask_tail].min(), probs[mask_median].min(), probs[mask_head].min())
+            #     # print(probs[mask_tail].max(), probs[mask_median].max(), probs[mask_head].max())
+            #     # exit()
+            #     # knn_preds = preds[mask_tail]
+            #     # probs, preds = scaled_linear.max(dim=1)
+            #     # for i, prob in enumerate(probs):
+            #     #     if prob < probs[mask_tail].mean():
+            #     #         scaled_linear[i] = scaled_knn[i]
+            #     # dp_probs = probs[mask]
+            #     # dp_preds = preds[mask]
+            #     # gt = self.total_labels[mask]
+            #     # print("probs dot product wrong: ")
+            #     # print(dp_probs[dp_preds!=gt])
+            #     # print(len(dp_probs[dp_preds==gt]))
+            #     # exit()
+            #     # print("dot product tail ")
+            #     # print(scaled_linear[self.tail][:2])
+            #     # print("knn tail")
+            #     # print(scaled_knn[self.tail][:2])
+            #     # exit()
+
+            #     # w_inver = (1 / torch.tensor(self.label_counts)).repeat(50000, 1)
+            #     # # print(w_inver)
+            #     # target_range = torch.linspace(0, 1, steps=1000).repeat(50000, 1)
+            #     # w_inver = scaling(w_inver, target_range) 
+            #     # # print(w_inver)
+            #     # # exit()
+            #     # w_inver = w_inver.to(self.device)
+                
+
+            #     sum_logits = self.args.w1 * scaled_knn + self.args.w2 * scaled_linear
+            #     # print(F.softmax(sum_logits.detach(), dim=1))
+            #     # exit()
+            #     probs, preds = F.softmax(sum_logits.detach(), dim=1).max(dim=1)
+            #     _, preds_topk = F.softmax(sum_logits.detach(), dim=1).topk(k=self.args.k, dim=1, largest=True, sorted=True)
 
             # calculate validation cross-entropy loss
             print(self.val_loss.avg)
