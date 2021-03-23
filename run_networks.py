@@ -34,7 +34,7 @@ from sklearn.metrics import (
 from data.dataloader import ASM_Dataset
 from data.ClassAwareSampler import get_sampler
 # from thop import clever_format, profile
-
+print("test_change")
 
 deterministic = False
 if deterministic:
