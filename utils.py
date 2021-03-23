@@ -220,7 +220,7 @@ def compute_center_loss(features, centers, targets, loss, device):
     return center_loss
 
 
-def get_center_delta(features, centers, targets, alpha, device, head):
+def get_center_delta(features, centers, targets, alpha, device, head, median, tail):
   
     # implementation equation (4) in the center-loss paper
     features = features.view(features.size(0), -1)
@@ -256,8 +256,8 @@ def get_center_delta(features, centers, targets, alpha, device, head):
         MEDIAN/TAIL: 0.99
     '''
     alpha = torch.tensor([0.01]*uni_targets.shape[0]).to(device)
-    mask_head = (uni_targets.unsqueeze(1) == torch.tensor(head).to(device)).any(-1)
-    alpha[mask_head] = 0.001 
+    mask_head = (uni_targets.unsqueeze(1) == torch.tensor(tail).to(device)).any(-1)
+    alpha[mask_head] = 0.2
     alpha = alpha.unsqueeze(1)
    
     # delta_centers = delta_centers / (same_class_feature_count+1) * alpha
@@ -299,6 +299,20 @@ def map_classid_and_label(shot_list):
         label2classid[label] = classid
 
     return classid2label, label2classid
+
+def cal_attention(q, k, v):
+    '''
+    q: batch features
+    k: memory module
+    v: batch logits (batch_size, C)
+    '''
+    w = q.mm(k.t())
+    print(w)
+    w = F.softmax(w, dim=1)
+    print(w)
+    exit()
+    return w * v
+
 
 if __name__ == '__main__':
     features = torch.tensor([[1.,2.,3.], [2.,1.,3.], [3.,3.,3]])

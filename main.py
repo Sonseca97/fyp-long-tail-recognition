@@ -83,6 +83,8 @@ parser.add_argument('--second_head_alpha', type=float, default=0.1, help='trade-
 parser.add_argument('--crt', default=False, action='store_true')
 parser.add_argument('--imb', type=float, default=None)
 parser.add_argument('--debug', default=False, action='store_true')
+parser.add_argument('--attention', default=False, action='store_true', help='merge with post-hoc attention')
+parser.add_argument('--finetune_attention', default=False, action='store_true', help='finetune attention layer')
 args = parser.parse_args()
 os.environ['CUDA_VISIBLE_DEVICES']=args.gpu
 

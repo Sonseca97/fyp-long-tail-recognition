@@ -11,6 +11,7 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 import pickle
 from tqdm import tqdm
+from layers.AttentionLayer import AttentionLayer
 from models import DotProductClassifier, DistClassifier, KNNClassifier, AssignmentModule, LogitsWeight, LogitsAssignment
 from loss.ContrastiveLoss import ContraLoss
 from loss.LDAMLoss import LDAMLoss
@@ -208,6 +209,26 @@ class model ():
                                                  'lr': optim_params['lr'],
                                                  'momentum': optim_params['momentum'],
                                                  'weight_decay': optim_params['weight_decay']})
+        if self.args.finetune_attention:
+            self.finetune_flag = True
+            self.load_model()
+            for key, model in self.networks.items():
+                for params in model.parameters():
+                    params.requires_grad = False
+            fname_final = os.path.join(self.training_opt['log_dir'], '{}_final.pkl'.format(self.args.expname))
+            assert os.path.isfile(fname_final), "cannot find final centroids!"
+            with open(fname_final, 'rb') as f:
+                data = pickle.load(f)
+            self.centers =  torch.from_numpy(data['l2ncs']).to(self.device)
+            self.networks['attention_layer'] = nn.DataParallel(AttentionLayer(feat_dim=self.training_opt['feature_dim'])).to(self.device)
+            self.model_optim_params_list.append({
+                'params': self.networks['attention_layer'].parameters(),
+                'lr': optim_params['lr'],
+                'momentum': optim_params['momentum'],
+                'weight_decay': optim_params['weight_decay']
+            })
+
+        
         if self.args.trainable_logits_weight:
             self.finetune_flag = True
             self.load_model()
@@ -314,7 +335,6 @@ class model ():
                 print("Loading memory bank from {}".format(fname))
                 with open(fname, 'rb') as f:
                     self.memorybank  = pickle.load(f)
-    
             else:
                 self.memorybank = self.get_memory_bank()
                 print('===> Saving memory_bank to %s' %
@@ -449,6 +469,8 @@ class model ():
             else:
                 self.logits = self.networks['classifier'](self.normalized_features*20 if self.args.feat_norm else self.features)
             
+            if self.args.finetune_attention:
+                self.logits = self.networks['attention_layer'](self.features, self.centers, self.logits.detach())
             self.correctness_linear = self.logits.argmax(dim=1) == labels
             self.linear_output = F.log_softmax(self.logits / self.args.temperature, dim=1) 
             
@@ -499,13 +521,14 @@ class model ():
                     self.args.w2 = self.logspace[self.epoch - 2]
                 if self.args.trainable_logits_weight:
                     self.logits = self.networks['w1'](self.logits) + self.networks['w2'](self.logits_dist.detach())
-                   
-                # self.logits = self.args.w1 * self.logits + self.args.w2 * self.logits_dist.detach()
+                                   # self.logits = self.args.w1 * self.logits + self.args.w2 * self.logits_dist.detach()
 
 
             if phase == 'test':
-                if eval_phase == 'softmax':
+                if eval_phase in ['softmax','attention_layer']:
                     pass 
+                elif eval_phase == 'attention':
+                    self.logits = cal_attention(matrix_norm(self.features), self.centers, self.logits)
                 elif eval_phase == 'second dot product':
                     self.logits = self.second_logits
                 elif eval_phase == 'merge_logits':
@@ -668,8 +691,9 @@ class model ():
             end_epoch = 10
             self.training_opt['display_step'] = 100
         for epoch in range(1, end_epoch + 1):
-            if 'CIFAR' in self.training_opt['dataset'] and self.args.trainable_logits_weight==False:
+            if 'CIFAR' in self.training_opt['dataset'] and self.finetune_flag==False:
                 self.adjust_learning_rate(self.model_optimizer, epoch, self.training_opt['learning_rate'])
+
             self.ce_losses_stats = AverageMeter('ce_loss', ":4e")
             if self.args.second_fc:
                 self.kl_loss_stats = AverageMeter('klloss', ":4e")
@@ -677,12 +701,7 @@ class model ():
             self.acc_stats = AverageMeter('accuracy', ':6.2f')
 
             self.epoch=epoch
-            '''
-                Set Deferred Mixup
-            '''
-            # if epoch > 70:
-            #     self.args.mixup = True
-            
+   
             for model in self.networks.values():
                 if self.finetune_flag:
                     for module in model.modules():
@@ -704,7 +723,10 @@ class model ():
                 # Break when step equal to epoch step
                 if step == self.epoch_steps: #or image_t==self.training_data_num:
                     break
-                    
+                
+                if self.args.debug:
+                    if step == 10:
+                        break
             
                 inputs, labels = inputs.to(self.device), labels.to(self.device) # 128, 3, 224, 224
                 ori_labels = labels
@@ -734,12 +756,12 @@ class model ():
                     # udpate centroids
                     if self.centers is not None \
                             and self.args.m_freeze==False \
-                            and self.args.finetune_flag == False
+                            and self.finetune_flag == False:
 
                         centers = self.centers
                         center_deltas = get_center_delta(
                             self.normalized_features.data if self.args.feat_norm else matrix_norm(self.features).data,
-                            self.centers, labels, self.args.alpha, self.device, self.head)
+                            self.centers, labels, self.args.alpha, self.device, self.head, self.median, self.tail)
       
                         self.centers = centers - center_deltas
 
@@ -790,7 +812,7 @@ class model ():
 
             # Set model modes and set scheduler
             # In training, step optimizer scheduler and set model to train()
-            if self.finetune_flag or 'CIFAR' not in self.training_opt['dataset']:
+            if self.finetune_flag==False or 'CIFAR' not in self.training_opt['dataset']:
                 self.model_optimizer_scheduler.step()
                 if self.criterion_optimizer:
                     self.criterion_optimizer_scheduler.step()
@@ -803,14 +825,14 @@ class model ():
                 if self.eval_acc_mic_top1 > best_acc:
                     best_epoch = copy.deepcopy(epoch)
                     best_acc = copy.deepcopy(self.eval_acc_mic_top1)
-                    for key in base_model_weights.keys():
-                        base_model_weights[key] = copy.deepcopy(self.networks[key].state_dict())            
+                    for key in best_model_weights.keys():
+                        best_model_weights[key] = copy.deepcopy(self.networks[key].state_dict())            
             else:
                 if self.f1 > best_f1:
                     best_epoch = copy.deepcopy(epoch)
                     best_f1 = copy.deepcopy(self.f1)
-                    for key in base_model_weights.keys():
-                        base_model_weights[key] = copy.deepcopy(self.networks[key].state_dict())
+                    for key in best_model_weights.keys():
+                        best_model_weights[key] = copy.deepcopy(self.networks[key].state_dict())
 
             self.best_model_weights =copy.deepcopy(best_model_weights)
 
@@ -890,7 +912,7 @@ class model ():
         if self.centers is not None and self.args.cal_knn_val and phase=='val':
             eval_list.append('updated_centroids')
         
-        if phase=='test' and (self.args.assignment_module==False and self.args.logits_asm==False):
+        if phase=='test' and self.finetune_flag==False:
             fname_update = os.path.join(self.training_opt['log_dir'], '{}.pkl'.format(self.args.expname))
             if os.path.isfile(fname_update):
                 eval_list.append('updated_centroids')
@@ -902,7 +924,7 @@ class model ():
                 eval_list.append('final_centroids')
                 with open(fname_final, 'rb') as f:
                     data = pickle.load(f)
-                eval_dict['final_centroids'] = torch.from_numpy(data['l2ncs']).cuda()
+                eval_dict['final_centroids'] = torch.from_numpy(data['l2ncs']).to(self.device)
             else:
                 print("not found final_centroids") 
                 eval_dict['final_centroids'] = torch.from_numpy(self.get_knncentroids()['l2ncs']).cuda()
@@ -917,13 +939,20 @@ class model ():
                 with open(os.path.join(self.training_opt['log_dir'],'result.txt'), 'a') as f:
                         f.write(self.args.expname+'\n')
                         f.close()
+            if self.args.attention:
+                assert 'final_centroids' in eval_list, "Counln't find final memory module for calculating attention!!"
+                eval_dict['attention'] = eval_dict['final_centroids']
 
+        if self.args.finetune_attention:
+            eval_list = ['attention_layer']
         if self.args.trainable_logits_weight:
             eval_list = ['merge_logits'] if phase=='val' else ['softmax', 'merge_logits']
         if self.args.assignment_module or self.args.logits_asm:
             eval_list = ['softmax']
         if self.args.second_dotproduct and phase=='test':
             eval_list.append("second dot product")
+
+        # eval_list = ['attention']
         for eval_phase in eval_list:
             self.val_loss = AverageMeter('val_loss', ":4e")
             print(eval_phase)
@@ -936,7 +965,7 @@ class model ():
 
             self.total_targets = torch.empty(0)
             
-            if eval_phase not in ['softmax', 'second dot product'] and phase == 'test':
+            if eval_phase not in ['softmax', 'second dot product', 'attention_layer'] and phase == 'test':
                 self.centers = eval_dict[eval_phase]
 
             # Iterate over dataset
@@ -957,7 +986,11 @@ class model ():
                     # Uncomment this line to construct memory bank
                     if self.args.memory_bank:
                         self.total_features = torch.cat((self.total_features, self.features.cpu()))
-                    self.total_logits = torch.cat((self.total_logits, self.logits if eval_phase in ['softmax', 'merge_logits', 'second dot product'] else self.logits_dist))
+                    self.total_logits = torch.cat((self.total_logits, self.logits \
+                                    if eval_phase in ['softmax', 'merge_logits', \
+                                        'second dot product', 'attention', 'attention_layer'] \
+                                    else self.logits_dist))
+
                     self.total_labels = torch.cat((self.total_labels, labels))
                     self.total_paths = np.concatenate((self.total_paths, paths))
                     if self.args.assignment_module:
@@ -1407,6 +1440,8 @@ class model ():
                 suffix = '_with_asm'
             elif self.args.crt:
                 suffix = '_crt'
+            elif self.args.finetune_attention:
+                suffix = '_att'
             else:
                 suffix = ''
             model_dir = os.path.join(self.training_opt['log_dir'],
