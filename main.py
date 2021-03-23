@@ -14,7 +14,7 @@ from datetime import datetime
 # ================
 # LOAD CONFIGURATIONS
 # python main.py --config ./config/ImageNet_LT/stage_1.py
-data_root = {'ImageNet': '/mnt/lizhaochen/dataset', #change this
+data_root = {'ImageNet': '/mnt/lizhaochen/', #change this
              'Places': '/home/public/dataset/Places365',
              'iNaturalist18': '/mnt/lizhaochen/iNaturalist18',
              'CIFAR10': './data/CIFAR10',
@@ -82,6 +82,7 @@ parser.add_argument('--lr_scheduler', type=str, default='cos')
 parser.add_argument('--second_head_alpha', type=float, default=0.1, help='trade-off loss hyper-parameters of of student model')
 parser.add_argument('--crt', default=False, action='store_true')
 parser.add_argument('--imb', type=float, default=None)
+parser.add_argument('--debug', default=False, action='store_true')
 args = parser.parse_args()
 os.environ['CUDA_VISIBLE_DEVICES']=args.gpu
 
@@ -124,7 +125,8 @@ config['dloss_weight'] = args.dloss_weight
 config['memory_block'] = args.memory
 config['merge_logits'] = args.merge_logits
 args.dataset = training_opt['dataset']
-
+if args.debug:
+    config['training_opt']['num_epochs'] = 3
 
 if not test_mode: # test mode is false
 

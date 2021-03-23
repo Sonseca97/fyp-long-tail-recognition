@@ -255,7 +255,10 @@ def get_center_delta(features, centers, targets, alpha, device, head):
         HEAD: 0.999
         MEDIAN/TAIL: 0.99
     '''
-    alpha = torch.tensor([0.999 if idx.data in head else 0.99 for idx in uni_targets]).unsqueeze(1).to(device)
+    alpha = torch.tensor([0.01]*uni_targets.shape[0]).to(device)
+    mask_head = (uni_targets.unsqueeze(1) == torch.tensor(head).to(device)).any(-1)
+    alpha[mask_head] = 0.001 
+    alpha = alpha.unsqueeze(1)
    
     # delta_centers = delta_centers / (same_class_feature_count+1) * alpha
 

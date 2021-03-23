@@ -703,6 +703,9 @@ class model ():
                 if step == self.epoch_steps: #or image_t==self.training_data_num:
                     break
                     
+                if self.args.debug:
+                    if step == 10:
+                        break
             
                 inputs, labels = inputs.to(self.device), labels.to(self.device) # 128, 3, 224, 224
                 ori_labels = labels
@@ -738,7 +741,7 @@ class model ():
                         centers = self.centers
                         center_deltas = get_center_delta(
                             self.normalized_features.data if self.args.feat_norm else matrix_norm(self.features).data,
-                            self.centers, labels, self.args.alpha, self.device)
+                            self.centers, labels, self.args.alpha, self.device, self.head)
                         self.centers = centers - center_deltas
 
                     _, preds = torch.max(self.logits, 1)
@@ -797,7 +800,7 @@ class model ():
             # After every epoch, validation
             self.eval(phase='val',epoch=epoch)
             # Under validation, the best model need to be updated
-            if self.args.assignment_module == False and self.args.logits_asm:
+            if self.finetune_flag == False:
                 if self.eval_acc_mic_top1 > best_acc:
                     best_epoch = copy.deepcopy(epoch)
                     best_acc = copy.deepcopy(self.eval_acc_mic_top1)
@@ -1103,54 +1106,6 @@ class model ():
                 # print(self.total_targets.sum())
                 preds[knn_idx] = preds_knn[knn_idx]
                 # print((previous_pred == preds).sum())
-                
-            
-            # if self.knnclassifier is not None:
-            #     scaled_knn = F.softmax(self.total_logits.detach(), dim=1)
-                
-            #     scaled_linear = F.softmax(self.linear_total_logits.detach(), dim=1)
-            #     # scaled_knn = scaling(scaled_knn, scaled_linear)
-               
-            #     probs, preds = scaled_knn.max(dim=1)
-            #     mask_tail = [index for index, value in enumerate(self.total_labels) if value.item() in self.tail]
-            #     mask_median = [index for index, value in enumerate(self.total_labels) if value.item() in self.median]
-            #     mask_head = [index for index, value in enumerate(self.total_labels) if value.item() in self.head]
-            #     knn_probs = probs[mask_tail]
-            #     # print(probs[mask_tail].min(), probs[mask_median].min(), probs[mask_head].min())
-            #     # print(probs[mask_tail].max(), probs[mask_median].max(), probs[mask_head].max())
-            #     # exit()
-            #     # knn_preds = preds[mask_tail]
-            #     # probs, preds = scaled_linear.max(dim=1)
-            #     # for i, prob in enumerate(probs):
-            #     #     if prob < probs[mask_tail].mean():
-            #     #         scaled_linear[i] = scaled_knn[i]
-            #     # dp_probs = probs[mask]
-            #     # dp_preds = preds[mask]
-            #     # gt = self.total_labels[mask]
-            #     # print("probs dot product wrong: ")
-            #     # print(dp_probs[dp_preds!=gt])
-            #     # print(len(dp_probs[dp_preds==gt]))
-            #     # exit()
-            #     # print("dot product tail ")
-            #     # print(scaled_linear[self.tail][:2])
-            #     # print("knn tail")
-            #     # print(scaled_knn[self.tail][:2])
-            #     # exit()
-
-            #     # w_inver = (1 / torch.tensor(self.label_counts)).repeat(50000, 1)
-            #     # # print(w_inver)
-            #     # target_range = torch.linspace(0, 1, steps=1000).repeat(50000, 1)
-            #     # w_inver = scaling(w_inver, target_range) 
-            #     # # print(w_inver)
-            #     # # exit()
-            #     # w_inver = w_inver.to(self.device)
-                
-
-            #     sum_logits = self.args.w1 * scaled_knn + self.args.w2 * scaled_linear
-            #     # print(F.softmax(sum_logits.detach(), dim=1))
-            #     # exit()
-            #     probs, preds = F.softmax(sum_logits.detach(), dim=1).max(dim=1)
-            #     _, preds_topk = F.softmax(sum_logits.detach(), dim=1).topk(k=self.args.k, dim=1, largest=True, sorted=True)
 
             # calculate validation cross-entropy loss
             print(self.val_loss.avg)
