@@ -239,7 +239,7 @@ def get_center_delta(features, centers, targets, alpha, device, head, median, ta
         uni_targets.size(0), delta_centers.size(1)
     ).to(device).index_add_(0, indices, delta_centers)
     
-
+  
 
     targets_repeat_num = uni_targets.size()[0]
     uni_targets_repeat_num = targets.size()[0]
@@ -255,10 +255,10 @@ def get_center_delta(features, centers, targets, alpha, device, head, median, ta
         HEAD: 0.999
         MEDIAN/TAIL: 0.99
     '''
-    alpha = torch.tensor([0.01]*uni_targets.shape[0]).to(device)
-    mask_head = (uni_targets.unsqueeze(1) == torch.tensor(tail).to(device)).any(-1)
-    alpha[mask_head] = 0.2
-    alpha = alpha.unsqueeze(1)
+    # alpha = torch.tensor([0.01]*uni_targets.shape[0]).to(device)
+    # mask_head = (uni_targets.unsqueeze(1) == torch.tensor(tail).to(device)).any(-1)
+    # alpha[mask_head] = 0.2
+    # alpha = alpha.unsqueeze(1)
    
     # delta_centers = delta_centers / (same_class_feature_count+1) * alpha
 
@@ -307,11 +307,24 @@ def cal_attention(q, k, v):
     v: batch logits (batch_size, C)
     '''
     w = q.mm(k.t())
-    print(w)
     w = F.softmax(w, dim=1)
-    print(w)
-    exit()
+
     return w * v
+
+def cal_attention_topk(q, k, v):
+    '''
+    q: batch features
+    k: memory module
+    v: batch logits (batch_size, C)
+    '''
+    w = q.mm(k.t())
+    topk_v. topk_idx = torch.topk(v, dim=1, k=5)
+    w = torch.gather(w, dim=1, index=topk_idx)
+
+
+
+    return w * topk_v, topk_idx
+
 
 
 if __name__ == '__main__':
@@ -319,10 +332,11 @@ if __name__ == '__main__':
     features_exp = torch.tensor([[2.,2.5,3.], [2.,1.,3.], [0.,0.,0.]])
     centers = torch.tensor([[9.,5.,3.], [3.,2.,1.], [3.,3.,4.]])
     targets = torch.tensor([0,1,0])
-    alpha = 0.1
+    alpha = 0.01
     device = torch.device('cpu')
-    center_delta = get_center_delta(features, centers, targets, alpha, device)
+    center_delta = get_center_delta(features, centers, targets, alpha, device, None, None, None)
     new_centers = centers - center_delta
     print(center_delta)
     print(new_centers)
-    print(0.9 * centers + 0.1 * features_exp)
+    print(0.99 * centers + 0.01 * features_exp)
+

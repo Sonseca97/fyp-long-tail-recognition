@@ -96,14 +96,20 @@ def sim_matrix(a, b, eps=1e-8):
     exit()
     return sim_mt
 if __name__ == "__main__":
-    A = torch.rand(128, 512)
-    B = torch.rand(1000, 512)
-    # sim_matrix(A, B)
-    analyze_d_matrix()
+    # A = torch.rand(128, 512)
+    # B = torch.rand(1000, 512)
+    # # sim_matrix(A, B)
+    # analyze_d_matrix()
     # a = torch.tensor([[1,2.,3.]])
     # c = torch.tensor([[2.,4., 6.],[3., 4., 6.]])
     # print(l2_similarity(a, c))
     # print(torch.norm(a-c, 2, 1, keepdim=True).flatten())
+
+    a = torch.rand(2, 512)
+    logits = torch.rand(2, 1000)
+    topk_v, topk_idx = torch.topk(logits, dim=1, k=5)
+    
+
 
 
 

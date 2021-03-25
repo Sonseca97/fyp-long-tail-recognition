@@ -21,6 +21,7 @@ class DotProduct_Classifier(nn.Module):
     
         
     def forward(self, x, *args):
+        
         if self.weight_norm:
             x = x.mm(F.normalize(self.weight, dim=0))
         else:

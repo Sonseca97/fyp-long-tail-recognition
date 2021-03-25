@@ -15,7 +15,7 @@ from datetime import datetime
 # LOAD CONFIGURATIONS
 # python main.py --config ./config/ImageNet_LT/stage_1.py
 data_root = {'ImageNet': '/mnt/lizhaochen/', #change this
-             'Places': '/home/public/dataset/Places365',
+             'Places': '/mnt/lizhaochen/place_lt',
              'iNaturalist18': '/mnt/lizhaochen/iNaturalist18',
              'CIFAR10': './data/CIFAR10',
              'CIFAR100': './data/CIFAR100'}

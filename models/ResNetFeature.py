@@ -174,4 +174,4 @@ class ResNet(nn.Module):
 
         if self.use_dropout:
             x = self.dropout(x)
-        return x, feature_maps, attention_weight
+        return x, feature_maps

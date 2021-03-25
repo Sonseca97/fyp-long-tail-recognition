@@ -208,6 +208,21 @@ class model ():
                                                  'lr': optim_params['lr'],
                                                  'momentum': optim_params['momentum'],
                                                  'weight_decay': optim_params['weight_decay']})
+        
+        '''
+        META NET
+        '''
+        for key, val in networks_defs.items():
+            # Networks
+            def_file = val['def_file']
+            model_args = list(val['params'].values())
+            model_args.append(self.test_mode)
+            model_args.append(self.args.expname)
+            model_args.append(self.args.weight_norm)
+            self.networks[key+'_meta'] = source_import(def_file).create_model(*model_args)
+            self.networks[key+'_meta'] = nn.DataParallel(self.networks[key]).to(self.device)
+     
+        
         if self.args.finetune_attention:
             self.finetune_flag = True
             self.load_model()
@@ -442,7 +457,7 @@ class model ():
         self.inputs_augment = None
         # Calculate Features
         self.features, self.feature_maps = self.networks['feat_model'](inputs)
-     
+        self.features_meta, _ = self.networks['feat_model_meta'](inputs)
         # for i in range(len(self.attention_weight)):
         #     self.per_cls_attention_weight[labels[i].item()] += self.attention_weight[i].item()
         # using manifold mixup
@@ -467,7 +482,7 @@ class model ():
 
             else:
                 self.logits = self.networks['classifier'](self.normalized_features*20 if self.args.feat_norm else self.features)
-            
+                self.logits_meta = self.networks['classifier_meta'](self.normalized_features*20 if self.args.feat_norm else self.features)
         
             if self.args.finetune_attention:
                 self.logits = self.networks['attention_layer'](self.features, self.centers, self.logits.detach())
@@ -588,6 +603,7 @@ class model ():
         #             * self.criterion_weights['PerformanceLoss']
         self.loss_perf = self.criterions['PerformanceLoss'](self.logits, labels) \
                     * self.criterion_weights['PerformanceLoss']
+        self.loss_perf_meta = nn.CrossEntropyLoss(reduction='none')(self.logits_meta, labels)
         
 
         
