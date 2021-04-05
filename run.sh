@@ -11,3 +11,4 @@
 # python main.py --description dynamic_moving_average --gpu 1
 # --------------------3.24 knn true distill only kl loss
  python main.py --second_dotproduct --m_from 1 --description distillonly --scaling_logits --second_head_alpha 0 --temperature 1
+test
