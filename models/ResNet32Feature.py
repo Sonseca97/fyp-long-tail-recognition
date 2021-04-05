@@ -98,10 +98,7 @@ class ResNet_s(nn.Module):
         self.layer1 = self._make_layer(block, 16, num_blocks[0], stride=1)
         self.layer2 = self._make_layer(block, 32, num_blocks[1], stride=2)
         self.layer3 = self._make_layer(block, 64, num_blocks[2], stride=2)
-        if use_norm:
-            self.linear = NormedLinear(64, num_classes)
-        else:
-            self.linear = nn.Linear(64, num_classes)
+  
         self.apply(_weights_init)
 
     def _make_layer(self, block, planes, num_blocks, stride):
@@ -120,10 +117,10 @@ class ResNet_s(nn.Module):
         out = self.layer3(out)
         out = F.avg_pool2d(out, out.size()[3])
         out = out.view(out.size(0), -1)
-        return out
+        return out, None
 
 def create_model(use_modulatedatt=False, use_fc=False, dropout=None, stage1_weights=False, dataset=None, test=False, *args):
     print('Loading Scratch ResNet 32 Feature Model.')
-    resnet32 = ResNet_s(BasicBlock, [5, 5, 5], num_classes=num_classes, use_norm=False)
+    resnet32 = ResNet_s(BasicBlock, [5, 5, 5], use_norm=False)
 
-    return resnet10
+    return resnet32
