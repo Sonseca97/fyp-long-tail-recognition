@@ -271,18 +271,18 @@ def get_center_delta(features, centers, targets, alpha, device, head, median, ta
 
     return result
     
-# def dataset_dist (in_loader):
+def dataset_dist (in_loader):
 
-#     """Example, dataset_dist(data['train'][0])"""
+    """Example, dataset_dist(data['train'][0])"""
 
-#     label_list = np.array([x[1] for x in in_loader.dataset.samples])
-#     total_num = len(data_list)
+    label_list = np.array([x for x in in_loader.dataset.labels])
+    # total_num = len(data_list)
 
-#     distribution = []
-#     for l in np.unique(label_list):
-#         distribution.append((l, len(label_list[label_list == l])/total_num))
+    distribution = []
+    for l in np.unique(label_list):
+        distribution.append((len(label_list[label_list == l])/total_num))
 
-#     return distribution
+    return distribution
 
 
 def get_shot_list(path='ImageNet_shots.pkl'):

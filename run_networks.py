@@ -586,10 +586,10 @@ class model ():
         # print(self.logits)
         # self.loss_perf = nn.CrossEntropyLoss(reduction='none')(self.logits, labels) \
         #             * self.criterion_weights['PerformanceLoss']
+      
+            
         self.loss_perf = self.criterions['PerformanceLoss'](self.logits, labels) \
                     * self.criterion_weights['PerformanceLoss']
-        
-
         
         '''
             code for previous second head

@@ -5,9 +5,10 @@ from data import dataloader
 from run_networks import model
 import warnings
 import pandas as pd
-from utils import source_import
+from utils import source_import, dataset_dist
 import pause 
 from datetime import datetime
+import numpy as np 
 # pause.until(datetime(2021, 1, 6, 23, 59, 59))
 # print("finished pausing")
 # python main.py --config ./config/ImageNet_LT/stage_1.py --test
@@ -31,7 +32,7 @@ parser.add_argument('--mixup', default=False, action='store_true')
 parser.add_argument('--mixup_type', default='mixup_original', type=str)
 parser.add_argument('--mixup_alpha', default=0.1, type=float)
 
-
+parser.add_argument('--loss_type', default='CE')
 parser.add_argument('--knn', default=False, action='store_true')
 parser.add_argument('--feat_type', type=str, default='un')
 parser.add_argument('--dist_type', type=str, default='cos')
@@ -163,7 +164,7 @@ if not test_mode: # test mode is false
 
     lbs = data['train'].dataset.labels
     counts = []
-    for i in range(1000):
+    for i in range(len(np.unique(lbs))):
         counts.append(lbs.count(i))
     config['label_counts'] = counts
     counts = pd.DataFrame(counts)
@@ -172,6 +173,12 @@ if not test_mode: # test mode is false
     median = counts[(counts[0]>20)&(counts[0]<100)].index.tolist()
     head = counts[counts[0]>=100].index.tolist()
     config['label_info'] = [tail, median, head]
+
+    if args.loss_type == 'LDAM':
+        perf_loss_param = {'cls_num_list': config['label_counts'], 'max_m': 0.5, 'weight': None, 's':30}
+        performance_loss = {'def_file': './loss/LDAMLoss.py', 'loss_params': perf_loss_param,
+                                'optim_params': None, 'weight': 1.0}
+        config['criterions']['Performanceloss'] = performance_loss
 
     training_model = model(args, config, data, test=False)
     print("entering train function in run_networks")
