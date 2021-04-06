@@ -2,35 +2,45 @@ import torch.nn as nn
 from utils import *
 import torch.nn.functional as F
 
+class NormedLinear(nn.Module):
+
+    def __init__(self, in_features, out_features):
+        super(NormedLinear, self).__init__()
+        self.weight = nn.Parameter(torch.Tensor(in_features, out_features))
+        self.weight.data.uniform_(-1, 1).renorm_(2, 1, 1e-5).mul_(1e5)
+
+    def forward(self, x):
+        out = F.normalize(x, dim=1).mm(F.normalize(self.weight, dim=0))
+        return out
+
+class LambdaLayer(nn.Module):
+
+    def __init__(self, lambd):
+        super(LambdaLayer, self).__init__()
+        self.lambd = lambd
+
+    def forward(self, x):
+        return self.lambd(x)
+
 class DotProduct_Classifier(nn.Module):
     
-    def __init__(self, num_classes=1000, feat_dim=2048, *args):
+    def __init__(self, num_classes=1000, feat_dim=2048, use_norm=False, *args):
         super(DotProduct_Classifier, self).__init__()
-        print(args)
         
-        if args[-1] == True:
-            # Normalize weight
-            self.weight_norm = True
-            self.weight = nn.Parameter(torch.Tensor(feat_dim, num_classes))  # (input,output)
-            nn.init.xavier_uniform_(self.weight)
-            self.weight.data.uniform_(-1, 1).renorm_(2, 1, 1e-5).mul_(1e5)
-            self.s = 20
+        if use_norm:
+            print("hasd")
+            self.linear = NormedLinear(feat_dim, num_classes)
         else:
-            self.weight_norm = False
-            self.fc = nn.Linear(feat_dim, num_classes)
+            self.linear = nn.Linear(feat_dim, num_classes)
     
-        
+
     def forward(self, x, *args):
-        
-        if self.weight_norm:
-            x = x.mm(F.normalize(self.weight, dim=0))
-        else:
-            x = self.fc(x) # 128 x 1000
+        x = self.linear(x)
         return x
     
-def create_model(feat_dim, num_classes=1000, stage1_weights=False, dataset=None, test=False, *args):
+def create_model(feat_dim, num_classes=1000, stage1_weights=False, dataset=None, use_norm=False, test=False, *args):
     print('Loading Dot Product Classifier.')
-    clf = DotProduct_Classifier(num_classes, feat_dim, *args)
+    clf = DotProduct_Classifier(num_classes, feat_dim, use_norm=use_norm, *args)
     
     if not test:
         if stage1_weights:

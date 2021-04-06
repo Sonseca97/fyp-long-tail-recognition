@@ -87,6 +87,8 @@ class model ():
         if self.args.mixup:
             print("Using MixUp")
 
+        self.reweight_flag = False
+
         expname_list = [ 
             'e' + str(self.training_opt['num_epochs']), 
             self.args.mixup_type if self.args.mixup else None, 
@@ -189,8 +191,7 @@ class model ():
             def_file = val['def_file']
             model_args = list(val['params'].values())
             model_args.append(self.test_mode)
-            model_args.append(self.args.expname)
-            model_args.append(self.args.weight_norm)
+   
             self.networks[key] = source_import(def_file).create_model(*model_args)
             self.networks[key] = nn.DataParallel(self.networks[key]).to(self.device)
      
@@ -696,6 +697,9 @@ class model ():
  
         
         for epoch in range(1, end_epoch + 1):
+            if self.args.loss_type == 'LDAM-DRW' and epoch >= 160:
+                self.reweight_flag = True
+
             if 'CIFAR' in self.training_opt['dataset'] and self.finetune_flag==False:
                 self.adjust_learning_rate(self.model_optimizer, epoch, self.training_opt['learning_rate'])
 
@@ -723,7 +727,7 @@ class model ():
             image_t = 0
             start = 0
             # start = time.time()
-            for step, (inputs, labels, _) in enumerate(self.data['train']):
+            for step, (inputs, labels, _) in enumerate(self.data['train'] if self.reweight_flag==False else self.data['train_drw']):
                 # print("time for dataloader: {}".format(time.time()-start))
                 # Break when step equal to epoch step
                 if step == self.epoch_steps: #or image_t==self.training_data_num:

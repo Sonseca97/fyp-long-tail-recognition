@@ -26,47 +26,29 @@ parser.add_argument('--test', default=False, action='store_true')
 parser.add_argument('--test_open', default=False, action='store_true')
 parser.add_argument('--output_logits', default=False)
 parser.add_argument('--tensorboard', default=False, action='store_true')
-
+parser.add_argument('--gpu', type=str, default='0')
 # ---------Mixup Parameters-------
 parser.add_argument('--mixup', default=False, action='store_true')
 parser.add_argument('--mixup_type', default='mixup_original', type=str)
 parser.add_argument('--mixup_alpha', default=0.1, type=float)
-
-parser.add_argument('--loss_type', default='CE')
-parser.add_argument('--knn', default=False, action='store_true')
-parser.add_argument('--feat_type', type=str, default='un')
-parser.add_argument('--dist_type', type=str, default='cos')
-parser.add_argument('--count_csv', type=str)
-parser.add_argument('--acc_csv',type=str)
-parser.add_argument('--acc', default=False, action='store_true')
-parser.add_argument('--balms', default=False, action='store_true', help='using balanced meta softmax')
-parser.add_argument('--rrloss', default=False, action='store_true')
-parser.add_argument('--gpu', type=str, default='0')
-parser.add_argument('--memory', default=False, action='store_true', help='construct memory block')
-parser.add_argument('--dloss', type=str, help='either cosine loss or mse loss')
-parser.add_argument('--dloss_weight', type=float, default=0.1, help='store distance loss weight')
-parser.add_argument('--hypersearch', default=False, action='store_true', help='search mse weight and store in hyper.txt')
-parser.add_argument('--second_fc', default=False, action='store_true', help='using second fc for features')
-parser.add_argument('--merge_logits', default=False, action='store_true', help='merge two logits into one final logit')
+parser.add_argument('--manifold_mixup',default=False, action='store_true')
+# ----------IN USE-----------------
 parser.add_argument('--alpha', type=float, default=0.1, help='alpha controls the centroids update factor')
 parser.add_argument('--lam', type=float, default=1.0, help='lambda controls weight of center loss')
 parser.add_argument('--secondlr', type=float, default=0.1)
 parser.add_argument('--feat_norm', default=False, action='store_true')
 parser.add_argument('--m_from', default=1, type=int)
 parser.add_argument('--path', type=str)
-parser.add_argument('--ce_dist', default=False, action='store_true')
-parser.add_argument('--klloss', default=False, action='store_true')
 parser.add_argument('--description', type=str)
 parser.add_argument('--m_freeze', default=False, action='store_true')
-parser.add_argument('--k', default=5, type=int)
-parser.add_argument('--ldam', default=False, action='store_true')
-parser.add_argument('--manifold_mixup',default=False, action='store_true')
+parser.add_argument('--k', default=5, type=int, help='topk logits')
+parser.add_argument('--loss_type', default='CE')
 parser.add_argument('--logit_weight', default=1.0, type=float)
 parser.add_argument('--w1', default=1, type=float)
 parser.add_argument('--w2', default=1, type=float)
 parser.add_argument('--resample', default=False, action='store_true')
+parser.add_argument('--merge_logits', default=False, action='store_true', help='merge two logits into one final logit')
 parser.add_argument('--scaling_logits', default=False, action='store_true')
-parser.add_argument('--center_loss', default=False, action='store_true')
 parser.add_argument('--cal_knn_val', default=False, action='store_true')
 parser.add_argument('--log_w', default=False, action='store_true')
 parser.add_argument('--temperature', default=1.0, type=float)
@@ -86,6 +68,24 @@ parser.add_argument('--imb', type=float, default=None)
 parser.add_argument('--debug', default=False, action='store_true')
 parser.add_argument('--attention', default=False, action='store_true', help='merge with post-hoc attention')
 parser.add_argument('--finetune_attention', default=False, action='store_true', help='finetune attention layer')
+# ----------Not in use-----------
+parser.add_argument('--knn', default=False, action='store_true')
+parser.add_argument('--feat_type', type=str, default='un')
+parser.add_argument('--dist_type', type=str, default='cos')
+parser.add_argument('--count_csv', type=str)
+parser.add_argument('--acc_csv',type=str)
+parser.add_argument('--acc', default=False, action='store_true')
+parser.add_argument('--balms', default=False, action='store_true', help='using balanced meta softmax')
+parser.add_argument('--rrloss', default=False, action='store_true')
+parser.add_argument('--memory', default=False, action='store_true', help='construct memory block')
+parser.add_argument('--dloss', type=str, help='either cosine loss or mse loss')
+parser.add_argument('--dloss_weight', type=float, default=0.1, help='store distance loss weight')
+parser.add_argument('--hypersearch', default=False, action='store_true', help='search mse weight and store in hyper.txt')
+parser.add_argument('--second_fc', default=False, action='store_true', help='using second fc for features')
+parser.add_argument('--ce_dist', default=False, action='store_true')
+parser.add_argument('--klloss', default=False, action='store_true')
+parser.add_argument('--ldam', default=False, action='store_true')
+parser.add_argument('--center_loss', default=False, action='store_true')
 args = parser.parse_args()
 os.environ['CUDA_VISIBLE_DEVICES']=args.gpu
 
@@ -99,7 +99,8 @@ def update(config, args):
         performance_loss = {'def_file': './loss/BalancedSoftmaxLoss.py', 'loss_params': perf_loss_param,
                                 'optim_params': None, 'weight': 1.0}
         config['criterions']['Performanceloss'] = performance_loss
-
+    if 'LDAM' in args.loss_type:
+        config['networks']['classifier']['params']['use_norm'] = True
     return config
 
 test_mode = args.test
@@ -109,10 +110,10 @@ if test_open:
 output_logits = args.output_logits
 
 config = source_import(args.config).config
-# config = update(config, args)
+config = update(config, args)
 config['training_opt']['cifar_imb_ratio'] = args.imb
 training_opt = config['training_opt']
-if args.resample:
+if args.resample or args.loss_type=='LDAM-DRW':
     training_opt['sampler'] = {'def_file': './data/ClassAwareSampler.py', 'num_samples_cls': 4, 'type': 'ClassAwareSampler'}
 # change
 relatin_opt = config['memory']
@@ -154,10 +155,12 @@ if not test_mode: # test mode is false
         phase_bank = ['train', 'val', 'train_plain']
     else:
         phase_bank = ['train', 'val', 'train_plain', 'test']
+    if args.loss_type == 'LDAM-DRW':
+        phase_bank.append('train_drw')
 
     data = {x: dataloader.load_data(data_root=data_root[dataset.rstrip('_LT')], dataset=dataset, phase=x,
                                     batch_size=training_opt['batch_size'],
-                                    sampler_dic=sampler_dic if x!='train_plain' else None,
+                                    sampler_dic=sampler_dic if x!='train_plain' or x=='train_drw' else None,
                                     num_workers=training_opt['num_workers'],
                                     cifar_imb_ratio=training_opt['cifar_imb_ratio'] if 'cifar_imb_ratio' in training_opt else None)
             for x in (phase_bank)}# if relatin_opt['init_centroids'] else ['train', 'val'])}
@@ -174,7 +177,7 @@ if not test_mode: # test mode is false
     head = counts[counts[0]>=100].index.tolist()
     config['label_info'] = [tail, median, head]
 
-    if args.loss_type == 'LDAM':
+    if 'LDAM' in args.loss_type:
         perf_loss_param = {'cls_num_list': config['label_counts'], 'max_m': 0.5, 'weight': None, 's':30}
         performance_loss = {'def_file': './loss/LDAMLoss.py', 'loss_params': perf_loss_param,
                                 'optim_params': None, 'weight': 1.0}
@@ -209,7 +212,7 @@ else:
 
     lbs = data['train'].dataset.labels
     counts = []
-    for i in range(1000):
+    for i in range(len(np.unique(lbs))):
         counts.append(lbs.count(i))
     config['label_counts'] = counts
     counts = pd.DataFrame(counts)
