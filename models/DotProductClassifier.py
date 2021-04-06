@@ -31,16 +31,15 @@ class DotProduct_Classifier(nn.Module):
     
     def __init__(self, num_classes=1000, feat_dim=2048, use_norm=False, *args):
         super(DotProduct_Classifier, self).__init__()
-        
         if use_norm:
-            self.linear = NormedLinear(feat_dim, num_classes)
+            self.fc = NormedLinear(feat_dim, num_classes)
             self.apply(_weights_init)
         else:
-            self.linear = nn.Linear(feat_dim, num_classes)
+            self.fc = nn.Linear(feat_dim, num_classes)
     
 
     def forward(self, x, *args):
-        x = self.linear(x)
+        x = self.fc(x)
         return x
     
 def create_model(feat_dim, num_classes=1000, stage1_weights=False, dataset=None, use_norm=False, test=False, *args):

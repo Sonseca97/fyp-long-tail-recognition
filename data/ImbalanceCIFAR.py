@@ -11,9 +11,9 @@ import random
 
 class IMBALANCECIFAR10(torchvision.datasets.CIFAR10):
     cls_num = 10
-
     def __init__(self, phase, imbalance_ratio, root, imb_type='exp'):
-        train = True if phase == "train" else False
+        np.random.seed(32)
+        train = True if 'train' in phase else False
         super(IMBALANCECIFAR10, self).__init__(root, train, transform=None, target_transform=None, download=True)
         self.train = train
         if self.train:

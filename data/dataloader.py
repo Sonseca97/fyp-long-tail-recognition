@@ -81,7 +81,7 @@ def load_data(data_root, dataset, phase, batch_size, sampler_dic=None, num_worke
 
     txt = './data/%s/%s_%s.txt'%(dataset, dataset, (phase if phase != 'train_plain' else 'train'))
  
-    print('Loading data from %s' % (txt))
+    
     if dataset != 'iNaturalist18':
         key = 'default'
     else:
@@ -102,6 +102,7 @@ def load_data(data_root, dataset, phase, batch_size, sampler_dic=None, num_worke
         print('====> CIFAR100 Imbalance Ratio: ', cifar_imb_ratio)
         set_ = IMBALANCECIFAR100(phase, imbalance_ratio=cifar_imb_ratio, root=data_root)
     else:
+        print('Loading data from %s' % (txt))
         set_ = LT_Dataset(data_root, txt, transform)
 
     if phase == 'test' and test_open:
@@ -110,7 +111,7 @@ def load_data(data_root, dataset, phase, batch_size, sampler_dic=None, num_worke
         open_set_ = LT_Dataset('./data/%s/%s_open'%(dataset, dataset), open_txt, transform)
         set_ = ConcatDataset([set_, open_set_])
 
-    if sampler_dic and phase == 'train':
+    if sampler_dic and (phase == 'train' or phase == 'train_drw'):
         print('Using sampler.')
         # print('Sample %s samples per-class.' % sampler_dic['num_samples_cls'])
         print('Sampler parameters: ', sampler_dic['params'])

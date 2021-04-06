@@ -88,6 +88,7 @@ class model ():
             print("Using MixUp")
 
         self.reweight_flag = False
+        self.distillmask_flag = False
 
         expname_list = [ 
             'e' + str(self.training_opt['num_epochs']), 
@@ -189,10 +190,11 @@ class model ():
         for key, val in networks_defs.items():
             # Networks
             def_file = val['def_file']
-            model_args = list(val['params'].values())
-            model_args.append(self.test_mode)
+            print(val['params'])
+            # model_args = list(val['params'].values())
+            # model_args.append(self.test_mode)
    
-            self.networks[key] = source_import(def_file).create_model(*model_args)
+            self.networks[key] = source_import(def_file).create_model(**val['params'])
             self.networks[key] = nn.DataParallel(self.networks[key]).to(self.device)
      
 
@@ -324,12 +326,10 @@ class model ():
         
         if self.args.second_dotproduct:
             self.networks['second_dot_product'] = nn.DataParallel(DotProductClassifier.create_model(*model_args)).to(self.device)
-            self.model_optim_params_list.append({
-                'params': self.networks['second_dot_product'].parameters(),
-                'lr': 0.1,
-                'momentum': 0.9,
-                'weight_decay': 0.0005
-            })
+            self.model_optim_params_list.append({'params': self.networks['second_dot_product'].parameters(),
+                                                 'lr': optim_params['lr'],
+                                                 'momentum': optim_params['momentum'],
+                                                 'weight_decay': optim_params['weight_decay']})
         if self.args.memory_bank:
             fname = os.path.join(self.training_opt['log_dir'], '{}_memorybank.pkl'.format(self.args.expname))
             if os.path.isfile(fname):
@@ -500,7 +500,9 @@ class model ():
                 self.knn_output = (F.softmax(self.logits_dist / self.args.temperature, dim=1)).data
     
                 _, preds_knn = torch.max(self.logits_dist, 1)
-                self.distill_mask = (preds_knn == labels)
+                if self.distillmask_flag == False:
+                    self.distill_mask = (preds_knn == labels)
+                    self.distill_mask_flag = True
 
             if self.args.assignment_module:
                 self.asm_output, self.asm_target = self.networks['asm'](self.normalized_features, self.logits, self.logits_dist, labels)
@@ -528,7 +530,7 @@ class model ():
                                    # self.logits = self.args.w1 * self.logits + self.args.w2 * self.logits_dist.detach()
 
 
-            if phase == 'test':
+            if phase != 'train':
                 if eval_phase in ['softmax','attention_layer']:
                     pass 
                 elif eval_phase == 'attention':
@@ -961,7 +963,7 @@ class model ():
             eval_list = ['merge_logits'] if phase=='val' else ['softmax', 'merge_logits']
         if self.args.assignment_module or self.args.logits_asm:
             eval_list = ['softmax']
-        if self.args.second_dotproduct and phase=='test':
+        if self.args.second_dotproduct:
             eval_list.append("second dot product")
 
         # eval_list = ['attention']
@@ -1047,8 +1049,9 @@ class model ():
             #     with open(os.path.join(self.training_opt['log_dir'], '{}_logits_reweight_train.pkl'.format(self.args.expname)), 'wb') as f:
             #             pickle.dump(self.total_logits.cpu().numpy(), f)
             # elif eval_phase == 'softmax':
-            #     with open(os.path.join(self.training_opt['log_dir'], '{}_logits_train.pkl'.format(self.args.expname)), 'wb') as f:
-            #             pickle.dump(self.total_logits.cpu().numpy(), f)
+            # with open(os.path.join(self.training_opt['log_dir'], '{}_path_test.pkl'.format(self.args.expname)), 'wb') as f:
+            #         pickle.dump(self.total_paths, f)
+            # exit()
             #     with open(os.path.join(self.training_opt['log_dir'], '{}_labels_train.pkl'.format(self.args.expname)), 'wb') as f:
             #             pickle.dump(self.total_labels.cpu().numpy(), f)
 
@@ -1345,6 +1348,7 @@ class model ():
             print("Loading ", key)
             
             weights = model_state[key]
+       
             weights = {k: weights[k] for k in weights if k in model.state_dict()}
             # model.load_state_dict(model_state[key])
 

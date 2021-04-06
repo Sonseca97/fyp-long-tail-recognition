@@ -9,17 +9,16 @@ from utils import source_import, dataset_dist
 import pause 
 from datetime import datetime
 import numpy as np 
+
 # pause.until(datetime(2021, 1, 6, 23, 59, 59))
 # print("finished pausing")
-# python main.py --config ./config/ImageNet_LT/stage_1.py --test
-# ================
-# LOAD CONFIGURATIONS
-# python main.py --config ./config/ImageNet_LT/stage_1.py
+
 data_root = {'ImageNet': '/mnt/lizhaochen/', #change this
              'Places': '/mnt/lizhaochen/place_lt',
              'iNaturalist18': '/mnt/lizhaochen/iNaturalist18',
              'CIFAR10': './data/CIFAR10',
              'CIFAR100': './data/CIFAR100'}
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--config', default='./config/ImageNet_LT/stage_1.py')
 parser.add_argument('--test', default=False, action='store_true')
@@ -40,7 +39,6 @@ parser.add_argument('--feat_norm', default=False, action='store_true')
 parser.add_argument('--m_from', default=1, type=int)
 parser.add_argument('--path', type=str)
 parser.add_argument('--description', type=str)
-parser.add_argument('--m_freeze', default=False, action='store_true')
 parser.add_argument('--k', default=5, type=int, help='topk logits')
 parser.add_argument('--loss_type', default='CE')
 parser.add_argument('--logit_weight', default=1.0, type=float)
@@ -70,6 +68,7 @@ parser.add_argument('--attention', default=False, action='store_true', help='mer
 parser.add_argument('--finetune_attention', default=False, action='store_true', help='finetune attention layer')
 # ----------Not in use-----------
 parser.add_argument('--knn', default=False, action='store_true')
+parser.add_argument('--m_freeze', default=False, action='store_true')
 parser.add_argument('--feat_type', type=str, default='un')
 parser.add_argument('--dist_type', type=str, default='cos')
 parser.add_argument('--count_csv', type=str)
@@ -155,6 +154,7 @@ if not test_mode: # test mode is false
         phase_bank = ['train', 'val', 'train_plain']
     else:
         phase_bank = ['train', 'val', 'train_plain', 'test']
+
     if args.loss_type == 'LDAM-DRW':
         phase_bank.append('train_drw')
         sampler_defs = {'def_file': './data/ClassAwareSampler.py', 'num_samples_cls': 4, 'type': 'ClassAwareSampler'}
