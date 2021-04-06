@@ -2,6 +2,11 @@ import torch.nn as nn
 from utils import *
 import torch.nn.functional as F
 
+def _weights_init(m):
+    classname = m.__class__.__name__
+    if isinstance(m, nn.Linear) or isinstance(m, nn.Conv2d):
+        init.kaiming_normal_(m.weight)
+
 class NormedLinear(nn.Module):
 
     def __init__(self, in_features, out_features):
@@ -28,8 +33,8 @@ class DotProduct_Classifier(nn.Module):
         super(DotProduct_Classifier, self).__init__()
         
         if use_norm:
-            print("hasd")
             self.linear = NormedLinear(feat_dim, num_classes)
+            self.apply(_weights_init)
         else:
             self.linear = nn.Linear(feat_dim, num_classes)
     

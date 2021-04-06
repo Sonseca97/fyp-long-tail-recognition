@@ -113,7 +113,7 @@ config = source_import(args.config).config
 config = update(config, args)
 config['training_opt']['cifar_imb_ratio'] = args.imb
 training_opt = config['training_opt']
-if args.resample or args.loss_type=='LDAM-DRW':
+if args.resample:
     training_opt['sampler'] = {'def_file': './data/ClassAwareSampler.py', 'num_samples_cls': 4, 'type': 'ClassAwareSampler'}
 # change
 relatin_opt = config['memory']
@@ -157,10 +157,15 @@ if not test_mode: # test mode is false
         phase_bank = ['train', 'val', 'train_plain', 'test']
     if args.loss_type == 'LDAM-DRW':
         phase_bank.append('train_drw')
+        sampler_defs = {'def_file': './data/ClassAwareSampler.py', 'num_samples_cls': 4, 'type': 'ClassAwareSampler'}
+        sampler_dic_ldam = {
+                'sampler': source_import(sampler_defs['def_file']).get_sampler(),
+                'params': {'num_samples_cls': sampler_defs['num_samples_cls']}
+            }
 
     data = {x: dataloader.load_data(data_root=data_root[dataset.rstrip('_LT')], dataset=dataset, phase=x,
                                     batch_size=training_opt['batch_size'],
-                                    sampler_dic=sampler_dic if x!='train_plain' or x=='train_drw' else None,
+                                    sampler_dic=sampler_dic if x!='train_drw' else sampler_dic_ldam ,
                                     num_workers=training_opt['num_workers'],
                                     cifar_imb_ratio=training_opt['cifar_imb_ratio'] if 'cifar_imb_ratio' in training_opt else None)
             for x in (phase_bank)}# if relatin_opt['init_centroids'] else ['train', 'val'])}
@@ -170,19 +175,19 @@ if not test_mode: # test mode is false
     for i in range(len(np.unique(lbs))):
         counts.append(lbs.count(i))
     config['label_counts'] = counts
+
     counts = pd.DataFrame(counts)
     #tail classes
     tail = counts[counts[0]<=20].index.tolist()
     median = counts[(counts[0]>20)&(counts[0]<100)].index.tolist()
     head = counts[counts[0]>=100].index.tolist()
     config['label_info'] = [tail, median, head]
-
+   
     if 'LDAM' in args.loss_type:
         perf_loss_param = {'cls_num_list': config['label_counts'], 'max_m': 0.5, 'weight': None, 's':30}
         performance_loss = {'def_file': './loss/LDAMLoss.py', 'loss_params': perf_loss_param,
                                 'optim_params': None, 'weight': 1.0}
-        config['criterions']['Performanceloss'] = performance_loss
-
+        config['criterions']['PerformanceLoss'] = performance_loss
     training_model = model(args, config, data, test=False)
     print("entering train function in run_networks")
     if args.assignment_module:

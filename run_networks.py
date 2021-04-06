@@ -284,6 +284,7 @@ class model ():
             for key, model in self.networks.items():
                 for params in model.parameters():
                     params.requires_grad = False
+
             self.networks['asm'] = nn.DataParallel(AssignmentModule.create_model()).to(self.device)
             # self.asm = AssignmentModule.create_model().to(self.device)
             self.model_optim_params_list.append({
@@ -359,8 +360,10 @@ class model ():
         self.criterion_weights = {}
 
         for key, val in criterion_defs.items():
+  
             # print(val, val['optim_params'])
             def_file = val['def_file']
+            
             loss_args = val['loss_params'].values()
             # print(def_file)
             self.criterions[key] = source_import(def_file).create_loss(*loss_args).to(self.device)
@@ -588,7 +591,7 @@ class model ():
         # self.loss_perf = nn.CrossEntropyLoss(reduction='none')(self.logits, labels) \
         #             * self.criterion_weights['PerformanceLoss']
       
-            
+    
         self.loss_perf = self.criterions['PerformanceLoss'](self.logits, labels) \
                     * self.criterion_weights['PerformanceLoss']
         
