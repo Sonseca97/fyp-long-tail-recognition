@@ -66,6 +66,8 @@ parser.add_argument('--imb', type=float, default=None)
 parser.add_argument('--debug', default=False, action='store_true')
 parser.add_argument('--attention', default=False, action='store_true', help='merge with post-hoc attention')
 parser.add_argument('--finetune_attention', default=False, action='store_true', help='finetune attention layer')
+parser.add_argument('--knn_sampling', default=False, action='store_true')
+parser.add_argument('--distri_rob', default=False, action='store_true', help='distribution robustness')
 # ----------Not in use-----------
 parser.add_argument('--knn', default=False, action='store_true')
 parser.add_argument('--m_freeze', default=False, action='store_true')
@@ -130,6 +132,8 @@ config['merge_logits'] = args.merge_logits
 args.dataset = training_opt['dataset']
 if args.debug:
     config['training_opt']['num_epochs'] = 3
+    
+args.distribution_alignment = True if 'distribution_alignment' in config.keys() else False
 
 if not test_mode: # test mode is false
 

@@ -7,9 +7,11 @@ class LogitsWeight(nn.Module):
         super(LogitsWeight, self).__init__()
         
         self.register_parameter(name='logitsweight', param=torch.nn.Parameter(torch.randn(num_classes)))
+        self.register_parameter(name='logitsbias', param=torch.nn.Parameter(torch.randn(num_classes)))
+
 
     def forward(self, logits):
-        return self.logitsweight * logits
+        return self.logitsweight * logits + self.logitsbias
 
 def create_model(num_classes=1000):
     print("Loading Logits Weight")

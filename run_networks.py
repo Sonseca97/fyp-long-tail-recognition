@@ -12,7 +12,15 @@ from torch.utils.tensorboard import SummaryWriter
 import pickle
 from tqdm import tqdm
 from layers.AttentionLayer import AttentionLayer
-from models import DotProductClassifier, DistClassifier, KNNClassifier, AssignmentModule, LogitsWeight, LogitsAssignment
+from models import (
+    AssignmentModule,
+    Attention,
+    DistClassifier,
+    DistributionAlignment,
+    LogitsWeight,
+    LogitsAssignment,
+    KNNClassifier
+)
 from loss.ContrastiveLoss import ContraLoss
 from loss.LDAMLoss import LDAMLoss
 from utils import *
@@ -47,6 +55,7 @@ if deterministic:
 class model ():
 
     def __init__(self, args, config, data, test=False):
+   
         self.finetune_flag = False # Set to True is in finetune stage
         self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
         self.config = config
@@ -55,10 +64,18 @@ class model ():
         self.data = data
         self.test_mode = test
         self.args = args
+        '''
+        initialize some variables fdor use
+        '''
         self.epoch = None
-
         # initialize initial centroids
         self.centers = None
+        self.inputs_for_next = None
+        self.labels_for_next = None
+        self.reweight_flag = False
+        self.distillmask_flag = False
+        # initialize dynamic mask
+        self.distill_mask = None
         self.logspace = np.geomspace(0.01, 1, num=89)
         # add label info tail, median, head
         if self.config['label_info'] is not None:
@@ -79,6 +96,7 @@ class model ():
         self.cosloss = nn.CosineEmbeddingLoss()
         self.contraloss = ContraLoss()
         self.kl_div_loss = nn.KLDivLoss(reduction='batchmean')
+        self.weightedCE = nn.CrossEntropyLoss(weight=self.inverse_freq.to(self.device))
         # self.kl_div_loss = nn.KLDivLoss()
         # self.ldamloss = LDAMLoss(cls_count = self.label_counts)
         self.dloss_weight = None
@@ -87,8 +105,6 @@ class model ():
         if self.args.mixup:
             print("Using MixUp")
 
-        self.reweight_flag = False
-        self.distillmask_flag = False
 
         expname_list = [ 
             'e' + str(self.training_opt['num_epochs']), 
@@ -112,6 +128,7 @@ class model ():
         if self.args.path is not None:
             self.args.expname = self.args.path
      
+    
         # mk log dir
         dir_name = os.path.join(self.training_opt['log_dir'], self.args.expname)
         if not os.path.exists(dir_name):
@@ -177,8 +194,7 @@ class model ():
         if self.args.mixup:
             self.mixup_function = self.mixup_function_bank[self.args.mixup_type]
         
-        # initialize dynamic mask
-        self.distill_mask = None
+        
 
     def init_models(self, optimizer=True):
 
@@ -190,33 +206,42 @@ class model ():
         for key, val in networks_defs.items():
             # Networks
             def_file = val['def_file']
-            print(val['params'])
-            # model_args = list(val['params'].values())
-            # model_args.append(self.test_mode)
-   
+            print(val['params'])   
             self.networks[key] = source_import(def_file).create_model(**val['params'])
             self.networks[key] = nn.DataParallel(self.networks[key]).to(self.device)
      
-
-            if 'fix' in val and val['fix']:
-                print('Freezing feature weights except for modulated attention weights (if exist).')
-                for param_name, param in self.networks[key].named_parameters():
-                    # Freeze all parameters except self attention parameters
-                    if 'modulatedatt' not in param_name and 'fc' not in param_name:
-                        param.requires_grad = False
-
             # Optimizer list
             optim_params = val['optim_params']
             self.model_optim_params_list.append({'params': self.networks[key].parameters(),
                                                  'lr': optim_params['lr'],
                                                  'momentum': optim_params['momentum'],
                                                  'weight_decay': optim_params['weight_decay']})
+        
+        if self.args.distribution_alignment:
+            self.finetune_flag = True
+            self.load_model()
+            for params in self.networks['feat_model'].parameters():
+                params.requires_grad = False
+            self.networks['DistributionAlignment'] = nn.DataParallel(
+                DistributionAlignment.create_model(
+                    feat_dim=self.training_opt['feature_dim'], 
+                    num_classes=self.training_opt['num_classes']
+                )
+            ).to(self.device)
+            self.model_optim_params_list.append({
+                'params': self.networks['DistributionAlignment'].parameters(),
+                'lr': optim_params['lr'],
+                'momentum': optim_params['momentum'],
+                'weight_decay': optim_params['weight_decay']
+            })
+        
         if self.args.finetune_attention:
             self.finetune_flag = True
             self.load_model()
             for key, model in self.networks.items():
                 for params in model.parameters():
                     params.requires_grad = False
+
             fname_final = os.path.join(self.training_opt['log_dir'], '{}_final.pkl'.format(self.args.expname))
             assert os.path.isfile(fname_final), "cannot find final centroids!"
             with open(fname_final, 'rb') as f:
@@ -405,7 +430,7 @@ class model ():
             # Break when step equal to epoch step
             if step == self.epoch_steps: #or image_t==self.training_data_num:
                 break
-        
+                
             inputs, labels = inputs.to(self.device), labels.to(self.device) # 128, 3, 224, 224
             self.asm_total_labels = torch.cat([self.asm_total_labels, labels.cpu()])
             # If on training phase, enable gradients
@@ -446,7 +471,10 @@ class model ():
         self.inputs_augment = None
         # Calculate Features
         self.features, self.feature_maps = self.networks['feat_model'](inputs)
-     
+   
+        # if self.epoch-1 >= self.args.m_from and self.args.distri_rob:
+            # self.euc_logits = euclidean_dist(self.features, self.centers_un)
+          
         # for i in range(len(self.attention_weight)):
         #     self.per_cls_attention_weight[labels[i].item()] += self.attention_weight[i].item()
         # using manifold mixup
@@ -472,7 +500,9 @@ class model ():
             else:
                 self.logits = self.networks['classifier'](self.normalized_features*20 if self.args.feat_norm else self.features)
             
-        
+            if self.args.distribution_alignment:
+                self.logits = self.networks['DistributionAlignment'](self.features, self.logits)
+
             if self.args.finetune_attention:
                 self.logits = self.networks['attention_layer'](self.features, self.centers, self.logits.detach())
             self.correctness_linear = self.logits.argmax(dim=1) == labels
@@ -503,6 +533,15 @@ class model ():
                 if self.distillmask_flag == False:
                     self.distill_mask = (preds_knn == labels)
                     self.distill_mask_flag = True
+                if phase == 'train' and self.args.knn_sampling:
+                    '''
+                        Sampling mask
+                    '''
+                    self.sampling_mask = (preds_knn==labels)&(self.logits.argmax(dim=1)!=labels)
+
+                    self.inputs_for_next = inputs[self.sampling_mask]
+                    self.labels_for_next = labels[self.sampling_mask]
+
 
             if self.args.assignment_module:
                 self.asm_output, self.asm_target = self.networks['asm'](self.normalized_features, self.logits, self.logits_dist, labels)
@@ -596,7 +635,7 @@ class model ():
     
         self.loss_perf = self.criterions['PerformanceLoss'](self.logits, labels) \
                     * self.criterion_weights['PerformanceLoss']
-        
+        self.loss = self.loss_perf
         '''
             code for previous second head
             NOT in anymore
@@ -642,9 +681,9 @@ class model ():
                 # self.second_head_loss = 0
                         # * self.args.temperature * self.args.temperature
             self.second_head_loss += self.criterions['PerformanceLoss'](self.second_logits[~self.distill_mask], labels[~self.distill_mask])  
-                   
         else:
             self.second_head_loss = 0
+
         if self.args.klloss and self.centers is not None:
             # self.klloss = self.kl_div_loss(self.linear_output, self.knn_output) * self.args.temperature * self.args.temperature
             # print((self.scaled_inverse_freq.t().cuda() * 10)[labels].shape)
@@ -655,10 +694,16 @@ class model ():
             # self.klloss = (5 * self.target_one_hot.unsqueeze(1).cuda() * nn.KLDivLoss(reduction='none')(self.linear_output, self.knn_output)).sum(axis=1).mean() * self.args.temperature * self.args.temperature
 
             self.klloss = (self.target_one_hot.unsqueeze(1).cuda() * nn.KLDivLoss(reduction='none')(self.linear_output, self.knn_output)).sum()/(self.target_one_hot.sum()+1e-5) * self.args.temperature * self.args.temperature
-           
+        
+        if self.centers is not None and self.args.distri_rob:
+            self.disrob_loss = self.weightedCE(self.euc_logits, labels)
+      
+        else:
+            self.disrob_loss = 0
+
         a = 1
         b = 5
-        self.loss = self.loss_perf + self.klloss + self.center_loss + self.second_head_loss
+        self.loss = 0.5 * self.loss_perf + self.klloss + self.center_loss + self.second_head_loss + 0.5 * self.disrob_loss
       
       
     def batch_loss_mixup(self, targets_a, targets_b, lam):
@@ -743,6 +788,10 @@ class model ():
                         break
             
                 inputs, labels = inputs.to(self.device), labels.to(self.device) # 128, 3, 224, 224
+                if self.inputs_for_next is not None:
+                    inputs = torch.cat([inputs, self.inputs_for_next])
+                    labels = torch.cat([labels, self.labels_for_next])
+
                 ori_labels = labels
                 # if self.inputs_augment is not None:
                 #     inputs = torch.cat((inputs, self.inputs_augment), dim=0)
@@ -854,6 +903,7 @@ class model ():
             # if finetuning, don't calculate
             if epoch==self.args.m_from and self.finetune_flag==False:
                 self.feat_dict = self.get_knncentroids()
+                self.centers_un = torch.from_numpy(self.feat_dict['uncs']).to(self.device)
                 if self.args.feat_norm:
                     self.centers = torch.from_numpy(self.feat_dict['l2ncs']).to(self.device)
                 else:
@@ -1057,13 +1107,14 @@ class model ():
 
             probs, preds = F.softmax(self.total_logits.detach(), dim=1).max(dim=1)
             # if eval_phase == 'final_centroids':
-            #     # with open(os.path.join(self.training_opt['log_dir'], '{}_preds_knn.pkl'.format(self.args.expname)), 'wb') as f:
-            #     #     pickle.dump(preds.cpu().numpy(), f)
+            # with open(os.path.join(self.training_opt['log_dir'], '{}_probs_softmax.pkl'.format(self.args.expname)), 'wb') as f:
+            #     pickle.dump(probs.cpu().numpy(), f)
+            # exit()
             #     with open(os.path.join(self.training_opt['log_dir'], '{}_probs_knn.pkl'.format(self.args.expname)), 'wb') as f:
             #         pickle.dump(F.softmax(self.total_logits.detach(), dim=1).cpu().numpy(), f)
             # if eval_phase == 'softmax':
-            #     with open(os.path.join(self.training_opt['log_dir'], '{}_probs_ibs.pkl'.format(self.args.expname)), 'wb') as f:
-            #         pickle.dump(F.softmax(self.total_logits.detach(), dim=1).cpu().numpy(), f)
+            # with open(os.path.join(self.training_opt['log_dir'], '{}_probs_ibs.pkl'.format(self.args.expname)), 'wb') as f:
+            #     pickle.dump(F.softmax(preds.detach(), dim=1).cpu().numpy(), f)
     
 
             _, preds_topk = F.softmax(self.total_logits.detach(), dim=1).topk(k=self.args.k, dim=1, largest=True, sorted=True)
@@ -1141,55 +1192,7 @@ class model ():
                 # print(self.total_targets.sum())
                 preds[knn_idx] = preds_knn[knn_idx]
                 # print((previous_pred == preds).sum())
-                
-            
-            # if self.knnclassifier is not None:
-            #     scaled_knn = F.softmax(self.total_logits.detach(), dim=1)
-                
-            #     scaled_linear = F.softmax(self.linear_total_logits.detach(), dim=1)
-            #     # scaled_knn = scaling(scaled_knn, scaled_linear)
-               
-            #     probs, preds = scaled_knn.max(dim=1)
-            #     mask_tail = [index for index, value in enumerate(self.total_labels) if value.item() in self.tail]
-            #     mask_median = [index for index, value in enumerate(self.total_labels) if value.item() in self.median]
-            #     mask_head = [index for index, value in enumerate(self.total_labels) if value.item() in self.head]
-            #     knn_probs = probs[mask_tail]
-            #     # print(probs[mask_tail].min(), probs[mask_median].min(), probs[mask_head].min())
-            #     # print(probs[mask_tail].max(), probs[mask_median].max(), probs[mask_head].max())
-            #     # exit()
-            #     # knn_preds = preds[mask_tail]
-            #     # probs, preds = scaled_linear.max(dim=1)
-            #     # for i, prob in enumerate(probs):
-            #     #     if prob < probs[mask_tail].mean():
-            #     #         scaled_linear[i] = scaled_knn[i]
-            #     # dp_probs = probs[mask]
-            #     # dp_preds = preds[mask]
-            #     # gt = self.total_labels[mask]
-            #     # print("probs dot product wrong: ")
-            #     # print(dp_probs[dp_preds!=gt])
-            #     # print(len(dp_probs[dp_preds==gt]))
-            #     # exit()
-            #     # print("dot product tail ")
-            #     # print(scaled_linear[self.tail][:2])
-            #     # print("knn tail")
-            #     # print(scaled_knn[self.tail][:2])
-            #     # exit()
-
-            #     # w_inver = (1 / torch.tensor(self.label_counts)).repeat(50000, 1)
-            #     # # print(w_inver)
-            #     # target_range = torch.linspace(0, 1, steps=1000).repeat(50000, 1)
-            #     # w_inver = scaling(w_inver, target_range) 
-            #     # # print(w_inver)
-            #     # # exit()
-            #     # w_inver = w_inver.to(self.device)
-                
-
-            #     sum_logits = self.args.w1 * scaled_knn + self.args.w2 * scaled_linear
-            #     # print(F.softmax(sum_logits.detach(), dim=1))
-            #     # exit()
-            #     probs, preds = F.softmax(sum_logits.detach(), dim=1).max(dim=1)
-            #     _, preds_topk = F.softmax(sum_logits.detach(), dim=1).topk(k=self.args.k, dim=1, largest=True, sorted=True)
-
+    
             # calculate validation cross-entropy loss
             print(self.val_loss.avg)
             if self.args.tensorboard:
@@ -1467,6 +1470,8 @@ class model ():
                 suffix = '_crt'
             elif self.args.finetune_attention:
                 suffix = '_att'
+            elif self.args.distribution_alignment:
+                suffix = '_da'
             else:
                 suffix = ''
             model_dir = os.path.join(self.training_opt['log_dir'],
@@ -1511,10 +1516,10 @@ class model ():
         epoch = epoch
         if epoch <= 5:
             lr = learning_rate * epoch / 5
-        elif epoch > 180:
-            lr = learning_rate * 0.0001
         elif epoch > 160:
             lr = learning_rate * 0.01
+        elif epoch > 120:
+            lr = learning_rate * 0.1
         else:
             lr = learning_rate
         for param_group in optimizer.param_groups:

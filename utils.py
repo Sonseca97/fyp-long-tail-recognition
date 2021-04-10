@@ -182,6 +182,17 @@ def l2_similarity(A, B):
 
         return -dist
 
+def euclidean_dist(A, B):
+    feat_dim = A.shape[0]
+
+    AB = torch.mm(A, B.t())
+    AA = (A**2).sum(dim=1, keepdim=True)
+    BB = (B**2).sum(dim=1, keepdim=True)
+    dist = AA + BB.t() - 2*AB
+
+    return -torch.sqrt(dist)
+
+
 def cos_similarity(A, B):
         feat_dim = A.size(1)
         AB = torch.mm(A, B.t())

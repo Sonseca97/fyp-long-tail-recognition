@@ -25,7 +25,7 @@ networks['feat_model'] = {'def_file': './models/ResNet32Feature.py',
                           'params': feature_param,
                           'optim_params': feature_optim_param,
                           'fix': False}
-classifier_param = {'in_dim': training_opt['feature_dim'], 'num_classes': training_opt['num_classes'],
+classifier_param = {'feat_dim': training_opt['feature_dim'], 'num_classes': training_opt['num_classes'],
                     'stage1_weights': False, 'dataset': training_opt['dataset']}
 classifier_optim_param = {'lr': 0.1, 'momentum': 0.9, 'weight_decay': 2e-4}
 networks['classifier'] = {'def_file': './models/DotProductClassifier.py',
