@@ -27,7 +27,7 @@ python main.py --m_from 1
 ```
 - LLW:
 ```
-python main.py --trainable_logits_weight --path <baseline checkpoint directory name> --scaling_logits --config ./config/ImageNet_LT/weight_finetune_resnet10.py
+python main.py --trainable_logits_weight --path <baseline checkpoint directory name> --scaling_logits --config ./config/ImageNet_LT/weight_finetune_resnet10.py --merge_logits
 ```
 - Knowledge Transfer Loss:
 ```

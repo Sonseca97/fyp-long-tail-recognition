@@ -105,6 +105,7 @@ class model ():
         self.dloss_weight = None
         if self.args.second_fc:
             self.distclassifier = DistClassifier.create_model(feat_dim=self.training_opt['feature_dim'])
+            
         if self.args.mixup:
             print("Using MixUp")
 
