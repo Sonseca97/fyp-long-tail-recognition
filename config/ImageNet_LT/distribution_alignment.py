@@ -11,7 +11,7 @@ training_opt['num_epochs'] = 10
 training_opt['display_step'] = 10
 training_opt['feature_dim'] = 512
 training_opt['open_threshold'] = 0.1
-training_opt['sampler'] = {'def_file': './data/ClassAwareSampler.py', 'num_samples_cls': 4, 'type': 'ClassAwareSampler'}
+training_opt['sampler'] = None#{'def_file': './data/ClassAwareSampler.py', 'num_samples_cls': 4, 'type': 'ClassAwareSampler'}
 training_opt['scheduler_params'] = {'step_size':int(training_opt['num_epochs']/3), 'gamma': 0.1} # every 10 epochs decrease lr by 0.1
 config['training_opt'] = training_opt
 

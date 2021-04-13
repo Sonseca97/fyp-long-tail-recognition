@@ -68,9 +68,10 @@ parser.add_argument('--attention', default=False, action='store_true', help='mer
 parser.add_argument('--finetune_attention', default=False, action='store_true', help='finetune attention layer')
 parser.add_argument('--knn_sampling', default=False, action='store_true')
 parser.add_argument('--distri_rob', default=False, action='store_true', help='distribution robustness')
+parser.add_argument('--m_freeze', default=False, action='store_true')
+parser.add_argument('--ro', type=float, default=1.0)
 # ----------Not in use-----------
 parser.add_argument('--knn', default=False, action='store_true')
-parser.add_argument('--m_freeze', default=False, action='store_true')
 parser.add_argument('--feat_type', type=str, default='un')
 parser.add_argument('--dist_type', type=str, default='cos')
 parser.add_argument('--count_csv', type=str)

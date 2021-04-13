@@ -23,6 +23,7 @@ from models import (
 )
 from loss.ContrastiveLoss import ContraLoss
 from loss.LDAMLoss import LDAMLoss
+from loss.DROLoss import DROLoss
 from utils import *
 from mixuputils import *
 import time
@@ -88,6 +89,7 @@ class model ():
 
             self.class_prior = torch.tensor(list(self.label_dict.values())) / sum(self.label_counts)
             self.inverse_freq = 1 / torch.tensor(list(self.label_dict.values()))
+            self.distribution_alignment_weight = (self.inverse_freq**self.args.ro / torch.sum(self.inverse_freq**self.args.ro)).to(self.device)
             target_range = torch.linspace(0, 1, steps=1000)
             self.scaled_inverse_freq = scaling(self.inverse_freq.unsqueeze(0), target_range.unsqueeze(0))
             self.scaled_class_prior = scaling(self.class_prior.unsqueeze(0), target_range.unsqueeze(0))
@@ -97,6 +99,7 @@ class model ():
         self.contraloss = ContraLoss()
         self.kl_div_loss = nn.KLDivLoss(reduction='batchmean')
         self.weightedCE = nn.CrossEntropyLoss(weight=self.inverse_freq.to(self.device))
+        self.droloss = DROLoss(weight=self.inverse_freq.to(self.device), epsilon=1)
         # self.kl_div_loss = nn.KLDivLoss()
         # self.ldamloss = LDAMLoss(cls_count = self.label_counts)
         self.dloss_weight = None
@@ -472,8 +475,8 @@ class model ():
         # Calculate Features
         self.features, self.feature_maps = self.networks['feat_model'](inputs)
    
-        # if self.epoch-1 >= self.args.m_from and self.args.distri_rob:
-            # self.euc_logits = euclidean_dist(self.features, self.centers_un)
+        if self.centers is not None and self.args.distri_rob:
+            self.euc_logits = euclidean_dist(self.features, self.centers_un)
           
         # for i in range(len(self.attention_weight)):
         #     self.per_cls_attention_weight[labels[i].item()] += self.attention_weight[i].item()
@@ -632,9 +635,14 @@ class model ():
         # self.loss_perf = nn.CrossEntropyLoss(reduction='none')(self.logits, labels) \
         #             * self.criterion_weights['PerformanceLoss']
       
-    
-        self.loss_perf = self.criterions['PerformanceLoss'](self.logits, labels) \
-                    * self.criterion_weights['PerformanceLoss']
+        if self.args.distribution_alignment:
+            self.loss_perf = softmax_cross_entropy_with_softtarget(
+                            self.logits, 
+                            self.distribution_alignment_weight[labels]
+                        )
+        else:
+            self.loss_perf = self.criterions['PerformanceLoss'](self.logits, labels) \
+                        * self.criterion_weights['PerformanceLoss']
         self.loss = self.loss_perf
         '''
             code for previous second head
@@ -696,14 +704,17 @@ class model ():
             self.klloss = (self.target_one_hot.unsqueeze(1).cuda() * nn.KLDivLoss(reduction='none')(self.linear_output, self.knn_output)).sum()/(self.target_one_hot.sum()+1e-5) * self.args.temperature * self.args.temperature
         
         if self.centers is not None and self.args.distri_rob:
-            self.disrob_loss = self.weightedCE(self.euc_logits, labels)
+            # self.disrob_loss = self.weightedCE(self.euc_logits, labels)
+            self.disrob_loss = self.droloss(self.euc_logits, labels)
       
         else:
             self.disrob_loss = 0
 
-        a = 1
-        b = 5
-        self.loss = 0.5 * self.loss_perf + self.klloss + self.center_loss + self.second_head_loss + 0.5 * self.disrob_loss
+        
+        if self.disrob_loss != 0:
+            self.loss = 0.5 * self.loss_perf + self.second_head_loss + 0.5 * self.disrob_loss
+        else:
+            self.loss = self.loss_perf + self.second_head_loss + self.disrob_loss
       
       
     def batch_loss_mixup(self, targets_a, targets_b, lam):
