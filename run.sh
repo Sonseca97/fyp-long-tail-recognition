@@ -11,5 +11,6 @@
 # python main.py --description dynamic_moving_average --gpu 1
 # --------------------3.24 knn true distill only kl loss
 #  python main.py --second_dotproduct --m_from 1 --description distillonly --scaling_logits --second_head_alpha 0 --temperature 1
-python main.py --distri_rob --m_freeze --m_from 30 --description distri_m_freeze_30_epsilon_1
-python main.py --distri_rob --m_freeze --m_from 80 --description distri_m_freeze_80_epsilon_1
+# python main.py --distri_rob --m_freeze --m_from 30 --description distri_m_freeze_30_epsilon_1
+# python main.py --distri_rob --m_freeze --m_from 80 --description distri_m_freeze_80_epsilon_1
+python main.py --distri_rob --m_from 1 --description distri_epsilon_1

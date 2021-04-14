@@ -476,9 +476,6 @@ class model ():
         # Calculate Features
         self.features, self.feature_maps = self.networks['feat_model'](inputs)
    
-        if self.centers is not None and self.args.distri_rob:
-            self.euc_logits = euclidean_dist(self.features, self.centers_un)
-          
         # for i in range(len(self.attention_weight)):
         #     self.per_cls_attention_weight[labels[i].item()] += self.attention_weight[i].item()
         # using manifold mixup
@@ -489,6 +486,10 @@ class model ():
         # norm feature
         if self.args.feat_norm:
             self.normalized_features = matrix_norm(self.features)
+
+        if self.centers is not None and self.args.distri_rob:
+            self.euc_logits = euclidean_dist(self.features, self.centers_un)
+            self.cos_logits = cos_similarity(self.matrix_norm(self.features), self.centers)
 
         # using second head
         if self.args.second_fc:
@@ -563,7 +564,6 @@ class model ():
 
             # if self.args.klloss:
             #     self.prob_gt = F.softmax(self.knnclassifier.l2_similarity(self.features, self.centers).detach(), dim=1)
-            
             if self.args.merge_logits and self.centers is not None and phase != 'test':
                 if self.args.log_w:
                     self.args.w1 = 1 - self.logspace[self.epoch - 2]
@@ -571,7 +571,6 @@ class model ():
                 if self.args.trainable_logits_weight:
                     self.logits = self.networks['w1'](self.logits) + self.networks['w2'](self.logits_dist.detach())
                                    # self.logits = self.args.w1 * self.logits + self.args.w2 * self.logits_dist.detach()
-
 
             if phase != 'train':
                 if eval_phase in ['softmax','attention_layer']:
@@ -644,7 +643,7 @@ class model ():
         else:
             self.loss_perf = self.criterions['PerformanceLoss'](self.logits, labels) \
                         * self.criterion_weights['PerformanceLoss']
-        self.loss = self.loss_perf
+     
         '''
             code for previous second head
             NOT in anymore
@@ -707,7 +706,8 @@ class model ():
         if self.centers is not None and self.args.distri_rob:
             # self.disrob_loss = self.weightedCE(self.euc_logits, labels)
             self.disrob_loss = self.droloss(self.euc_logits, labels)
-      
+            print(self.disrob_loss)
+           
         else:
             self.disrob_loss = 0
 
@@ -837,8 +837,14 @@ class model ():
                         center_deltas = get_center_delta(
                             self.normalized_features.data if self.args.feat_norm else matrix_norm(self.features).data,
                             self.centers, labels, self.args.alpha, self.device, self.head, self.median, self.tail)
-      
                         self.centers = centers - center_deltas
+
+                        centers_un = self.centers_un
+                        center_deltas = get_center_delta(self.features.data, 
+                                            self.centers_un, labels, 
+                                            self.args.alpha, self.device, 
+                                            self.head, self.median, self.tail)
+                        self.centers_un = centers_un - center_delta
 
                     _, preds = torch.max(self.logits, 1)
                   
@@ -916,10 +922,8 @@ class model ():
             if epoch==self.args.m_from and self.finetune_flag==False:
                 self.feat_dict = self.get_knncentroids()
                 self.centers_un = torch.from_numpy(self.feat_dict['uncs']).to(self.device)
-                if self.args.feat_norm:
-                    self.centers = torch.from_numpy(self.feat_dict['l2ncs']).to(self.device)
-                else:
-                    self.centers = torch.from_numpy(self.feat_dict['l2ncs']).to(self.device)
+                self.centers = torch.from_numpy(self.feat_dict['l2ncs']).to(self.device)
+            
                 # for key, model in self.networks.items():
                 #     if key != 'second_fc':
                 #         for params in model.parameters():
