@@ -489,7 +489,7 @@ class model ():
 
         if self.centers is not None and self.args.distri_rob:
             self.euc_logits = euclidean_dist(self.features, self.centers_un)
-            self.cos_logits = cos_similarity(self.matrix_norm(self.features), self.centers)
+            self.cos_logits = cos_similarity(matrix_norm(self.features), self.centers)
 
         # using second head
         if self.args.second_fc:
@@ -517,7 +517,6 @@ class model ():
             if self.args.second_dotproduct:
                 self.second_logits = self.networks['second_dot_product'](feature_no_grad)
                 self.second_linear_output = F.log_softmax(self.second_logits/self.args.temperature, dim=1)
-            
 
             if self.centers is not None:
                 # calculate distance logits 
@@ -705,9 +704,8 @@ class model ():
         
         if self.centers is not None and self.args.distri_rob:
             # self.disrob_loss = self.weightedCE(self.euc_logits, labels)
-            self.disrob_loss = self.droloss(self.euc_logits, labels)
-            print(self.disrob_loss)
-           
+            self.disrob_loss = self.droloss(self.cos_logits, labels)
+ 
         else:
             self.disrob_loss = 0
 
@@ -844,7 +842,7 @@ class model ():
                                             self.centers_un, labels, 
                                             self.args.alpha, self.device, 
                                             self.head, self.median, self.tail)
-                        self.centers_un = centers_un - center_delta
+                        self.centers_un = centers_un - center_deltas
 
                     _, preds = torch.max(self.logits, 1)
                   

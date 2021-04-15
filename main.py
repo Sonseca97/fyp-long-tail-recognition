@@ -70,6 +70,7 @@ parser.add_argument('--knn_sampling', default=False, action='store_true')
 parser.add_argument('--distri_rob', default=False, action='store_true', help='distribution robustness')
 parser.add_argument('--m_freeze', default=False, action='store_true')
 parser.add_argument('--ro', type=float, default=1.0)
+parser.add_argument('--use_norm', default=False, action='store_true', help='if True, set classifier weight norm as 1')
 # ----------Not in use-----------
 parser.add_argument('--knn', default=False, action='store_true')
 parser.add_argument('--feat_type', type=str, default='un')
@@ -101,7 +102,7 @@ def update(config, args):
         performance_loss = {'def_file': './loss/BalancedSoftmaxLoss.py', 'loss_params': perf_loss_param,
                                 'optim_params': None, 'weight': 1.0}
         config['criterions']['Performanceloss'] = performance_loss
-    if 'LDAM' in args.loss_type:
+    if 'LDAM' in args.loss_type or args.use_norm:
         config['networks']['classifier']['params']['use_norm'] = True
     return config
 
