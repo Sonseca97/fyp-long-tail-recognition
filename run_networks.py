@@ -17,6 +17,7 @@ from models import (
     Attention,
     DistClassifier,
     DistributionAlignment,
+    DotProductClassifier,
     LogitsWeight,
     LogitsAssignment,
     KNNClassifier
@@ -354,7 +355,7 @@ class model ():
 
         
         if self.args.second_dotproduct:
-            self.networks['second_dot_product'] = nn.DataParallel(DotProductClassifier.create_model(*model_args)).to(self.device)
+            self.networks['second_dot_product'] = nn.DataParallel(DotProductClassifier.create_model(**val['params'])).to(self.device)
             self.model_optim_params_list.append({'params': self.networks['second_dot_product'].parameters(),
                                                  'lr': optim_params['lr'],
                                                  'momentum': optim_params['momentum'],
@@ -531,7 +532,7 @@ class model ():
                 self.target_one_hot = self.correctness_knn
                 # print(self.target_one_hot.unsqueeze(1).shape)
                 # knn_output all 0.001
-                self.knn_output = (F.softmax(self.logits_dist / self.args.temperature, dim=1)).data
+                self.knn_output = (F.softmax(self.logits_dist * 100 / self.args.temperature, dim=1)).data
     
                 _, preds_knn = torch.max(self.logits_dist, 1)
                 if self.distillmask_flag == False:

@@ -31,5 +31,5 @@ python main.py --trainable_logits_weight --path <baseline checkpoint directory n
 ```
 - Knowledge Transfer Loss:
 ```
-python main.py --second_dotproduct --m_from 1 --scaling_logits --second_head_alpha 0.2 --temperature 
+python main.py --second_dotproduct --m_from 1 --scaling_logits --second_head_alpha 0.2 --temperature 1
 ```
