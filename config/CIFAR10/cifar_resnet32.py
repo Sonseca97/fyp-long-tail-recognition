@@ -4,7 +4,7 @@ config = {}
 training_opt = {}
 training_opt['dataset'] = 'CIFAR10_LT'
 training_opt['num_classes'] = 10
-training_opt['batch_size'] = 512
+training_opt['batch_size'] = 128
 training_opt['num_workers'] = 4
 training_opt['num_epochs'] = 200
 training_opt['display_step'] = 100
@@ -18,19 +18,26 @@ training_opt['scheduler_params'] = {'step_size':int(training_opt['num_epochs']/3
 config['training_opt'] = training_opt
 
 networks = {}
+
 feature_param = {'use_modulatedatt': False, 'use_fc': False, 'dropout': None,
                  'stage1_weights': False, 'dataset': training_opt['dataset']}
-feature_optim_param = {'lr': 0.5, 'momentum': 0.9, 'weight_decay': 1e-4}
+
+feature_optim_param = {'lr': 0.1, 'momentum': 0.9, 'weight_decay': 2e-4}
+
 networks['feat_model'] = {'def_file': './models/ResNet32Feature.py',
                           'params': feature_param,
                           'optim_params': feature_optim_param,
                           'fix': False}
+
 classifier_param = {'feat_dim': training_opt['feature_dim'], 'num_classes': training_opt['num_classes'],
                     'stage1_weights': False, 'dataset': training_opt['dataset']}
-classifier_optim_param = {'lr': 0.5, 'momentum': 0.9, 'weight_decay': 1e-4}
+
+classifier_optim_param = {'lr': 0.1, 'momentum': 0.9, 'weight_decay': 2e-4}
+
 networks['classifier'] = {'def_file': './models/DotProductClassifier.py',
                           'params': classifier_param,
                           'optim_params': classifier_optim_param}
+
 config['networks'] = networks
 
 criterions = {}

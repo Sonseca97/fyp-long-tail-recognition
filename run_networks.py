@@ -532,11 +532,13 @@ class model ():
                 self.target_one_hot = self.correctness_knn
                 # print(self.target_one_hot.unsqueeze(1).shape)
                 # knn_output all 0.001
-                self.knn_output = (F.softmax(self.logits_dist * 100 / self.args.temperature, dim=1)).data
+                self.knn_output = (F.softmax(self.logits_dist * 100/ self.args.temperature, dim=1)).data
     
                 _, preds_knn = torch.max(self.logits_dist, 1)
                 if self.distillmask_flag == False:
-                    self.distill_mask = (preds_knn == labels)
+                    self.distill_mask = (preds_knn == labels)&(~self.correctness_linear)
+             
+                    
                     self.distill_mask_flag = True
                 if phase == 'train' and self.args.knn_sampling:
                     '''
@@ -673,10 +675,10 @@ class model ():
         '''
             Add KL Loss for training
         '''
-        if self.args.second_dotproduct and self.centers is not None and phase=='train':
-            tail = torch.tensor(self.tail).to(self.device)
-            mask = torch.tensor([True if i in tail else False for i in labels[self.distill_mask]])
-            if self.distill_mask is not None:
+        if self.args.second_dotproduct and phase=='train':
+            # tail = torch.tensor(self.tail).to(self.device)
+            # mask = torch.tensor([True if i in tail else False for i in labels[self.distill_mask]])
+            if self.distill_mask is not None and False: # meaning centroids being initialized
             # if mask.sum() > 0:
                 # self.second_head_loss = self.args.second_head_alpha * self.criterions['PerformanceLoss'](self.second_logits[self.distill_mask], labels[self.distill_mask]) \
                 #             + (1-self.args.second_head_alpha) * self.kl_div_loss(self.second_linear_output[self.distill_mask], self.knn_output[self.distill_mask]) \
@@ -684,15 +686,17 @@ class model ():
                 self.second_head_loss = self.args.second_head_alpha * self.criterions['PerformanceLoss'](self.second_logits[self.distill_mask], labels[self.distill_mask]) \
                             + (1-self.args.second_head_alpha) * self.kl_div_loss(self.second_linear_output[self.distill_mask], self.knn_output[self.distill_mask]) \
                                 # * self.args.temperature * self.args.temperature \
-                            
-            # else:
-                # self.second_head_loss = 0
+                self.second_head_loss += self.criterions['PerformanceLoss'](self.second_logits[~self.distill_mask], labels[~self.distill_mask])  
+            else:
+                self.second_head_loss = self.criterions['PerformanceLoss'](self.second_logits, labels)  
                         # * self.args.temperature * self.args.temperature
-            self.second_head_loss += self.criterions['PerformanceLoss'](self.second_logits[~self.distill_mask], labels[~self.distill_mask])  
+            
         else:
             self.second_head_loss = 0
 
         if self.args.klloss and self.centers is not None:
+            self.klloss = self.kl_div_loss(self.linear_output[self.distill_mask], self.knn_output[self.distill_mask])
+            self.klloss += self.criterions['PerformanceLoss'](self.logits[~self.distill_mask], labels[~self.distill_mask])  
             # self.klloss = self.kl_div_loss(self.linear_output, self.knn_output) * self.args.temperature * self.args.temperature
             # print((self.scaled_inverse_freq.t().cuda() * 10)[labels].shape)
             # self.klloss = ((self.scaled_inverse_freq.t().cuda().log())[labels] \
@@ -700,9 +704,9 @@ class model ():
             #             .sum(axis=1).mean() * .args.temperature * self.args.temperature
             # self.klloss = ((self.scaled_class_prior.t().cuda())[labels] * nn.KLDivLoss(reduction='none')(self.linear_output, self.knn_output)).sum(axis=1).mean() * self.args.temperature * self.args.temperature
             # self.klloss = (5 * self.target_one_hot.unsqueeze(1).cuda() * nn.KLDivLoss(reduction='none')(self.linear_output, self.knn_output)).sum(axis=1).mean() * self.args.temperature * self.args.temperature
-
-            self.klloss = (self.target_one_hot.unsqueeze(1).cuda() * nn.KLDivLoss(reduction='none')(self.linear_output, self.knn_output)).sum()/(self.target_one_hot.sum()+1e-5) * self.args.temperature * self.args.temperature
-        
+            # self.klloss = (self.target_one_hot.unsqueeze(1).cuda() * nn.KLDivLoss(reduction='none')(self.linear_output, self.knn_output)).sum()/(self.target_one_hot.sum()+1e-5) * self.args.temperature * self.args.temperature
+        else:
+            self.args.klloss = 0
         if self.centers is not None and self.args.distri_rob:
             # self.disrob_loss = self.weightedCE(self.euc_logits, labels)
             self.disrob_loss = self.droloss(self.cos_logits, labels)
@@ -713,6 +717,8 @@ class model ():
         
         if self.disrob_loss != 0:
             self.loss = 0.5 * self.loss_perf + self.second_head_loss + 0.5 * self.disrob_loss
+        elif self.args.klloss != 0:
+            self.loss = 0.2* self.loss_perf + self.second_head_loss + self.disrob_loss + 0.8 * self.klloss
         else:
             self.loss = self.loss_perf + self.second_head_loss + self.disrob_loss
       
@@ -1069,10 +1075,11 @@ class model ():
 
                     if self.test_mode == False:
                         self.val_loss.update(self.loss.item(), inputs.size(0))
-                        
-                    # Uncomment this line to construct memory bank
+             
                     if self.args.memory_bank:
                         self.total_features = torch.cat((self.total_features, self.features.cpu()))
+                    # self.total_features = torch.cat((self.total_features, self.features.cpu()))
+
                     self.total_logits = torch.cat((self.total_logits, self.logits \
                                     if eval_phase in ['softmax', 'merge_logits', \
                                         'second dot product', 'attention', 'attention_layer'] \
@@ -1088,7 +1095,7 @@ class model ():
                         self.total_logits_dist = torch.cat((self.total_logits_dist, self.logits_dist))
                         self.assignment_pred = torch.cat((self.assignment_pred, self.asm_output))
                         self.total_targets = torch.cat((self.total_targets, self.correctness_linear.int().cpu()))
-         
+
             # softmax_logits = '/home/lizhaochen/fyp-long-tail-recognition/logs/ImageNet_LT/stage1/ImageNet_LT_90_coslr/ImageNet_LT_90_coslr_logits_ibs.pkl'
             # llw_logits = '/home/lizhaochen/fyp-long-tail-recognition/logs/ImageNet_LT/stage1/ImageNet_LT_90_coslr/ImageNet_LT_90_coslr_logits_reweight.pkl'
             # with open(softmax_logits, 'rb') as f:
@@ -1108,11 +1115,14 @@ class model ():
             # sum of two logits
             # self.sum_logits = self.total_logits_dot + self.total_logits
             # if eval_phase == 'final_centroids':
-            #     with open(os.path.join(self.training_opt['log_dir'], '{}_logits_knn_train.pkl'.format(self.args.expname)), 'wb') as f:
-            #             pickle.dump(self.total_logits.cpu().numpy(), f)
+            # with open(os.path.join(self.training_opt['log_dir'], '{}_test_features.pkl'.format(self.args.expname)), 'wb') as f:
+            #         pickle.dump(self.total_features.cpu().numpy(), f)
+            # with open(os.path.join(self.training_opt['log_dir'], '{}_test_labels.pkl'.format(self.args.expname)), 'wb') as f:
+            #         pickle.dump(self.total_labels.cpu().numpy(), f)  
+            # exit()    
             # elif eval_phase == 'merge_logits':
-            #     with open(os.path.join(self.training_opt['log_dir'], '{}_logits_reweight_train.pkl'.format(self.args.expname)), 'wb') as f:
-            #             pickle.dump(self.total_logits.cpu().numpy(), f)
+            # with open(os.path.join(self.training_opt['log_dir'], '{}_logits_reweight_train.pkl'.format(self.args.expname)), 'wb') as f:
+            #         pickle.dump(self.total_logits.cpu().numpy(), f)
             # elif eval_phase == 'softmax':
             # with open(os.path.join(self.training_opt['log_dir'], '{}_path_test.pkl'.format(self.args.expname)), 'wb') as f:
             #         pickle.dump(self.total_paths, f)
@@ -1531,9 +1541,9 @@ class model ():
         epoch = epoch
         if epoch <= 5:
             lr = learning_rate * epoch / 5
-        elif epoch > 160:
+        elif epoch > 180:
             lr = learning_rate * 0.01
-        elif epoch > 120:
+        elif epoch > 160:
             lr = learning_rate * 0.1
         else:
             lr = learning_rate

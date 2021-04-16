@@ -25,6 +25,10 @@ Change the `data_root` in `main.py` to your own directory.
 ```
 python main.py --m_from 1
 ```
+- cRT (Decoupling)
+```
+python main.py --config ./config/ImageNet_LT/stage_1_crt.py --path <folder path> --crt
+```
 - LLW:
 ```
 python main.py --trainable_logits_weight --path <baseline checkpoint directory name> --scaling_logits --config ./config/ImageNet_LT/weight_finetune_resnet10.py --merge_logits
