@@ -308,7 +308,7 @@ class model ():
         self.knnclassifier = KNNClassifier.create_model(self.training_opt['feature_dim'], num_classes=self.training_opt['num_classes'], 
                                                                 feat_type=self.args.feat_type, dist_type=self.args.dist_type,
                                                                 log_dir=self.training_opt['log_dir'], test=True, 
-                                                                path=self.args.expname, norm_input=True)
+                                                                path=self.args.expname)
 
         if self.args.assignment_module:
             self.finetune_flag = True
@@ -645,7 +645,7 @@ class model ():
         else:
             self.loss_perf = self.criterions['PerformanceLoss'](self.logits, labels) \
                         * self.criterion_weights['PerformanceLoss']
-     
+   
         '''
             code for previous second head
             NOT in anymore
@@ -678,7 +678,7 @@ class model ():
         if self.args.second_dotproduct and phase=='train':
             # tail = torch.tensor(self.tail).to(self.device)
             # mask = torch.tensor([True if i in tail else False for i in labels[self.distill_mask]])
-            if self.distill_mask is not None and False: # meaning centroids being initialized
+            if self.distill_mask is not None: # meaning centroids being initialized
             # if mask.sum() > 0:
                 # self.second_head_loss = self.args.second_head_alpha * self.criterions['PerformanceLoss'](self.second_logits[self.distill_mask], labels[self.distill_mask]) \
                 #             + (1-self.args.second_head_alpha) * self.kl_div_loss(self.second_linear_output[self.distill_mask], self.knn_output[self.distill_mask]) \
@@ -924,7 +924,7 @@ class model ():
 
             # if epoch is m_from: calculate centroids
             # if finetuning, don't calculate
-            if epoch==self.args.m_from and self.finetune_flag==False:
+            if epoch>=self.args.m_from and self.finetune_flag==False:
                 self.feat_dict = self.get_knncentroids()
                 self.centers_un = torch.from_numpy(self.feat_dict['uncs']).to(self.device)
                 self.centers = torch.from_numpy(self.feat_dict['l2ncs']).to(self.device)
@@ -1009,10 +1009,10 @@ class model ():
                 eval_list.append('final_centroids')
                 with open(fname_final, 'rb') as f:
                     data = pickle.load(f)
-                eval_dict['final_centroids'] = torch.from_numpy(data['l2ncs']).to(self.device)
+                eval_dict['final_centroids'] = torch.from_numpy(data[self.args.feat_type]).to(self.device)
             else:
                 print("not found final_centroids") 
-                eval_dict['final_centroids'] = torch.from_numpy(self.get_knncentroids()['l2ncs']).cuda()
+                eval_dict['final_centroids'] = torch.from_numpy(self.get_knncentroids()[self.args.feat_type]).cuda()
                 eval_list.append('final_centroids')
             if 'merge_logits' in self.args.expname or self.args.merge_logits:
                 try:
@@ -1162,9 +1162,6 @@ class model ():
                 ytest = self.total_targets.numpy()
                 knn_idx = torch.nonzero(self.assignment_pred==False).view((-1,))
                 preds[knn_idx] = preds_knn[knn_idx]
-
-
-
 
 
             if self.args.assignment_module:

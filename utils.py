@@ -208,6 +208,21 @@ def softmax_cross_entropy_with_softtarget(input, target, reduction='mean'):
     else:
         raise NotImplementedError('Unsupported reduction mode.')
 
+def softmax_cross_entropy(input, target, reduction='mean'):
+    one_hot = torch.zeros(target.shape[0], input.shape[1], device=target.device).scatter_(1, target.view(-1, 1), 1)
+    logprobs = F.log_softmax(input, dim=1)
+
+    batchloss = -torch.sum(logprobs * one_hot, dim=1)
+  
+    if reduction == 'none':
+        return batchloss
+    elif reduction == 'mean':
+        return torch.mean(batchloss)
+    elif reduction == 'sum':
+        return torch.sum(batchloss)
+    else:
+        raise NotImplementedError('Unsupported reduction mode.')
+
 def cos_similarity(A, B):
         feat_dim = A.size(1)
         AB = torch.mm(A, B.t())

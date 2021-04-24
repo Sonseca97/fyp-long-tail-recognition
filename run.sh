@@ -13,4 +13,5 @@
 #  python main.py --second_dotproduct --m_from 1 --description distillonly --scaling_logits --second_head_alpha 0 --temperature 1
 # python main.py --distri_rob --m_freeze --m_from 30 --description distri_m_freeze_30_epsilon_1
 # python main.py --distri_rob --m_freeze --m_from 80 --description distri_m_freeze_80_epsilon_1
-python main.py --distri_rob --m_from 1 --description distri_epsilon_1
+# python main.py --distri_rob --m_from 1 --description distri_epsilon_1_m_From_1_update_every_epoch --m_freeze # update every epoch
+python main.py --config ./config/CIFAR100/cifar_resnet32.py --distri_rob --m_from 1 --description distri_epsilon_1_m_From_1_update_every_epoch --m_freeze --imb 0.01 # update every epoch

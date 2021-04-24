@@ -12,9 +12,9 @@ import pickle
 import os 
 
 class KNNClassifier(nn.Module):
-    def __init__(self, feat_dim=512, num_classes=1000, feat_type='cl2n', dist_type='l2', norm_input=False):
+    def __init__(self, feat_dim=512, num_classes=1000, feat_type='cl2n', dist_type='l2'):
         super(KNNClassifier, self).__init__()
-        assert feat_type in ['un', 'l2n', 'cl2n'], "feat_type is wrong!!!"
+        assert feat_type in ['uncs', 'l2ncs', 'cl2ncs'], "feat_type is wrong!!!"
         assert dist_type in ['l2', 'cos'], "dist_type is wrong!!!"
         self.feat_dim = feat_dim
         self.num_classes = num_classes
@@ -23,7 +23,11 @@ class KNNClassifier(nn.Module):
         self.feat_type = feat_type
         self.dist_type = dist_type
         self.initialized = True
-        self.norm_input = norm_input
+
+        if self.feat_type in ['l2ncs', 'cl2ns']:
+            self.norm_input = True
+        else:
+            self.norm_input = False
     
     def update(self, cfeats):
         mean = cfeats['mean']
@@ -55,12 +59,16 @@ class KNNClassifier(nn.Module):
             self.initialized = True
       
 
-    def forward(self, inputs, centroids, *args):
-
+    def forward(self, inputs, centroids, mean=None,*args):
+        
+        if self.feat_type == 'cl2ncs':
+            assert mean is not None, "Mean cannot be None!!"
+            inputs = inputs - mean 
+        
         if self.norm_input:
             norm_x = torch.norm(inputs, 2, 1, keepdim=True)
             inputs = inputs / norm_x
-        
+            
         # Logit calculation
         if self.dist_type == 'l2':
             logit = self.l2_similarity(inputs, centroids)
@@ -93,17 +101,17 @@ class KNNClassifier(nn.Module):
 
 
 def create_model(feat_dim, num_classes=1000, feat_type='l2n', dist_type='cos',
-                 log_dir=None, test=False, path=None, eval_phase=None, norm_input=False, centroids=None, *args):
-    print(feat_dim, num_classes, feat_type, dist_type, norm_input)
-    clf = KNNClassifier(feat_dim, num_classes, feat_type, dist_type, norm_input)
+                 log_dir=None, test=False, path=None, eval_phase=None,  centroids=None, *args):
+    print(feat_dim, num_classes, feat_type, dist_type)
+    clf = KNNClassifier(feat_dim, num_classes, feat_type, dist_type)
     return clf 
 
     if eval_phase=='updated_centroids':
         print('Loading first KNN Classifier using updated centroids')
-        clf = KNNClassifier(feat_dim, num_classes, feat_type, dist_type, norm_input)
+        clf = KNNClassifier(feat_dim, num_classes, feat_type, dist_type)
         clf.load_memory(log_dir, path)
     else:
-        clf = KNNClassifier(feat_dim, num_classes, feat_type, dist_type, norm_input)
+        clf = KNNClassifier(feat_dim, num_classes, feat_type, dist_type)
         if centroids is not None:
             clf.update(centroids)
         else:

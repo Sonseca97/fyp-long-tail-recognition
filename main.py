@@ -73,7 +73,7 @@ parser.add_argument('--ro', type=float, default=1.0)
 parser.add_argument('--use_norm', default=False, action='store_true', help='if True, set classifier weight norm as 1')
 # ----------Not in use-----------
 parser.add_argument('--knn', default=False, action='store_true')
-parser.add_argument('--feat_type', type=str, default='un')
+parser.add_argument('--feat_type', type=str, default='l2ncs')
 parser.add_argument('--dist_type', type=str, default='cos')
 parser.add_argument('--count_csv', type=str)
 parser.add_argument('--acc_csv',type=str)
