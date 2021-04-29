@@ -223,6 +223,15 @@ def softmax_cross_entropy(input, target, reduction='mean'):
     else:
         raise NotImplementedError('Unsupported reduction mode.')
 
+
+
+def KL(a, b):
+    import numpy as np
+    a = np.asarray(a, dtype=np.float)
+    b = np.asarray(b, dtype=np.float)
+    print(np.where(a != 0, a * np.log(a / b), 0))
+    return np.sum(np.where(a != 0, a * np.log(a / b), 0))
+
 def cos_similarity(A, B):
         feat_dim = A.size(1)
         AB = torch.mm(A, B.t())

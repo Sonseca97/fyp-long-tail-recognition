@@ -71,6 +71,7 @@ parser.add_argument('--distri_rob', default=False, action='store_true', help='di
 parser.add_argument('--m_freeze', default=False, action='store_true')
 parser.add_argument('--ro', type=float, default=1.0)
 parser.add_argument('--use_norm', default=False, action='store_true', help='if True, set classifier weight norm as 1')
+parser.add_argument('--distill_tail', default=False, action='store_true', help='finetne with only tail data')
 # ----------Not in use-----------
 parser.add_argument('--knn', default=False, action='store_true')
 parser.add_argument('--feat_type', type=str, default='l2ncs')
@@ -115,6 +116,8 @@ output_logits = args.output_logits
 config = source_import(args.config).config
 config = update(config, args)
 config['training_opt']['cifar_imb_ratio'] = args.imb
+if args.distill_tail:
+    config['training_opt']['num_epochs'] = 10
 training_opt = config['training_opt']
 if args.resample:
     training_opt['sampler'] = {'def_file': './data/ClassAwareSampler.py', 'num_samples_cls': 4, 'type': 'ClassAwareSampler'}
@@ -159,7 +162,7 @@ if not test_mode: # test mode is false
     if dataset == 'iNaturalist18':
         phase_bank = ['train', 'val', 'train_plain']
     else:
-        phase_bank = ['train', 'val', 'train_plain', 'test']
+        phase_bank = ['train', 'val', 'train_plain', 'test', 'tail']
 
     if args.loss_type == 'LDAM-DRW':
         phase_bank.append('train_drw')

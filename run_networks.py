@@ -295,6 +295,16 @@ class model ():
             for params in self.networks['feat_model'].parameters():
                 params.requires_grad = False
 
+        if self.args.distill_tail:
+            self.finetune_flag = True 
+            self.load_model()
+           
+            fname_final = os.path.join(self.training_opt['log_dir'], '{}_final.pkl'.format(self.args.expname))
+            assert os.path.isfile(fname_final), "cannot find final centroids!"
+            with open(fname_final, 'rb') as f:
+                data = pickle.load(f)
+            self.centers =  torch.from_numpy(data['l2ncs']).cuda()
+
         if self.args.second_fc:
             self.networks['second_fc'] = nn.DataParallel(self.distclassifier).to(self.device)
             self.model_optim_params_list.append({
@@ -502,7 +512,6 @@ class model ():
             # calculate logits
             if self.args.manifold_mixup:
                 self.logits = self.networks['classifier'](self.mixed_feature)
-
             else:
                 self.logits = self.networks['classifier'](self.normalized_features*20 if self.args.feat_norm else self.features)
             
@@ -511,7 +520,9 @@ class model ():
 
             if self.args.finetune_attention:
                 self.logits = self.networks['attention_layer'](self.features, self.centers, self.logits.detach())
+
             self.correctness_linear = self.logits.argmax(dim=1) == labels
+          
             self.linear_output = F.log_softmax(self.logits / self.args.temperature, dim=1) 
             
             feature_no_grad = self.features.data
@@ -522,6 +533,7 @@ class model ():
             if self.centers is not None:
                 # calculate distance logits 
                 self.logits_dist = self.knnclassifier(self.fc_features if self.args.second_fc else self.features, self.centers)
+            
                 # calculate eta for scaling 
                 eta = torch.max(self.logits, dim=1)[0] / torch.max(self.logits_dist, dim=1)[0]
                 # topk, _ = torch.topk(self.logits_dist, k=self.top_k, dim=1)
@@ -529,16 +541,15 @@ class model ():
                 if self.args.scaling_logits:
                     self.logits_dist = scaling(self.logits_dist, self.logits)
                 self.correctness_knn = self.logits_dist.argmax(dim=1) == labels
+            
                 self.target_one_hot = self.correctness_knn
                 # print(self.target_one_hot.unsqueeze(1).shape)
                 # knn_output all 0.001
-                self.knn_output = (F.softmax(self.logits_dist * 100/ self.args.temperature, dim=1)).data
+                self.knn_output = (F.softmax(self.logits_dist/ self.args.temperature, dim=1)).data
     
                 _, preds_knn = torch.max(self.logits_dist, 1)
                 if self.distillmask_flag == False:
-                    self.distill_mask = (preds_knn == labels)&(~self.correctness_linear)
-             
-                    
+                    self.distill_mask = (preds_knn == labels)        
                     self.distill_mask_flag = True
                 if phase == 'train' and self.args.knn_sampling:
                     '''
@@ -645,6 +656,7 @@ class model ():
         else:
             self.loss_perf = self.criterions['PerformanceLoss'](self.logits, labels) \
                         * self.criterion_weights['PerformanceLoss']
+          
    
         '''
             code for previous second head
@@ -707,13 +719,16 @@ class model ():
             # self.klloss = (self.target_one_hot.unsqueeze(1).cuda() * nn.KLDivLoss(reduction='none')(self.linear_output, self.knn_output)).sum()/(self.target_one_hot.sum()+1e-5) * self.args.temperature * self.args.temperature
         else:
             self.args.klloss = 0
+
         if self.centers is not None and self.args.distri_rob:
             # self.disrob_loss = self.weightedCE(self.euc_logits, labels)
             self.disrob_loss = self.droloss(self.cos_logits, labels)
- 
         else:
             self.disrob_loss = 0
 
+        if self.args.distill_tail:
+            self.loss = 1 * self.loss_perf + 0.9 * self.kl_div_loss(self.linear_output, self.knn_output)
+            return 
         
         if self.disrob_loss != 0:
             self.loss = 0.5 * self.loss_perf + self.second_head_loss + 0.5 * self.disrob_loss
@@ -761,8 +776,6 @@ class model ():
         self.count = [0]*1000
         step_total = 0
 
- 
-        
         for epoch in range(1, end_epoch + 1):
             if self.args.loss_type == 'LDAM-DRW' and epoch >= 160:
                 self.reweight_flag = True
@@ -794,7 +807,16 @@ class model ():
             image_t = 0
             start = 0
             # start = time.time()
-            for step, (inputs, labels, _) in enumerate(self.data['train'] if self.reweight_flag==False else self.data['train_drw']):
+
+            # reweight flag is True when using LDAM-DRW loss
+            if self.reweight_flag:
+                train_loader = self.data['train_drw']
+            elif self.args.distill_tail:
+                train_loader = self.data['train']
+            else:
+                train_loader = self.data['train']
+
+            for step, (inputs, labels, _) in enumerate(train_loader):
                 # print("time for dataloader: {}".format(time.time()-start))
                 # Break when step equal to epoch step
                 if step == self.epoch_steps: #or image_t==self.training_data_num:
@@ -803,13 +825,10 @@ class model ():
                 if self.args.debug:
                     if step == 10:
                         break
-            
+                        
                 inputs, labels = inputs.to(self.device), labels.to(self.device) # 128, 3, 224, 224
-                if self.inputs_for_next is not None:
-                    inputs = torch.cat([inputs, self.inputs_for_next])
-                    labels = torch.cat([labels, self.labels_for_next])
-
-                ori_labels = labels
+    
+   
                 # if self.inputs_augment is not None:
                 #     inputs = torch.cat((inputs, self.inputs_augment), dim=0)
                 #     labels = torch.cat((labels, self.labels_augment), dim=0)
@@ -824,7 +843,6 @@ class model ():
                     # If training, forward with loss, and no top 5 accuracy calculation
                     self.batch_forward(inputs, labels, phase='train')
                    
-                
                     if self.args.mixup or self.args.manifold_mixup and self.lam!=-1:
                         self.batch_loss_mixup(self.targets_a, self.targets_b, self.lam)
                     # elif 'enrich' in self.args.mixup_type and inputs.shape[0]
@@ -1355,6 +1373,8 @@ class model ():
                 suffix = '_with_weight'
             elif self.args.assignment_module:
                 suffix = '_with_asm'
+            elif self.args.distill_tail:
+                suffix = '_dtail'
             else:
                 suffix = ''
             model_dir = os.path.join(self.training_opt['log_dir'], "{}{}.pth".format(self.args.path, suffix))
@@ -1494,6 +1514,8 @@ class model ():
                 suffix = '_att'
             elif self.args.distribution_alignment:
                 suffix = '_da'
+            elif self.args.distill_tail:
+                suffix = '_dtail'
             else:
                 suffix = ''
             model_dir = os.path.join(self.training_opt['log_dir'],

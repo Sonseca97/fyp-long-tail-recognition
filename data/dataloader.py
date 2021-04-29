@@ -2,6 +2,7 @@ from torch.utils.data import Dataset, DataLoader, ConcatDataset
 from torchvision import transforms
 import os
 from PIL import Image
+import pandas as pd
 import re
 from data.ImbalanceCIFAR import IMBALANCECIFAR10, IMBALANCECIFAR100
 # Data transformation with augmentation
@@ -51,14 +52,25 @@ def get_data_transform(split, rgb_mean, rbg_std, key='default'):
 # Dataset
 class LT_Dataset(Dataset):
 
-    def __init__(self, root, txt, transform=None):
+    def __init__(self, root, txt, transform=None, phase=None):
+        df = pd.read_csv("/home/lizhaochen/fyp/fyp-long-tail-recognition/analysis/label.csv")
+        tail = df[df.label_count<=20]['Unnamed: 0'].tolist()
+        median = df[(df.label_count>20)&(df.label_count<100)]['Unnamed: 0'].tolist()
+        head = df[df.label_count>=100]['Unnamed: 0'].tolist()
         self.img_path = []
         self.labels = []
         self.transform = transform
         with open(txt) as f:
-            for line in f:
-                self.img_path.append(os.path.join(root, line.split()[0]))
-                self.labels.append(int(line.split()[1]))
+            if phase not in ['head', 'median', 'tail']:
+                for line in f:
+                    self.img_path.append(os.path.join(root, line.split()[0]))
+                    self.labels.append(int(line.split()[1]))
+            else:
+                for line in f:
+                    label = int(line.split()[1])
+                    if label in tail:
+                        self.img_path.append(os.path.join(root, line.split()[0]))
+                        self.labels.append(int(line.split()[1]))
 
     def __len__(self):
         return len(self.labels)
@@ -79,7 +91,7 @@ class LT_Dataset(Dataset):
 # Load datasets
 def load_data(data_root, dataset, phase, batch_size, sampler_dic=None, num_workers=8, cifar_imb_ratio=None, test_open=False, shuffle=True):
 
-    txt = './data/%s/%s_%s.txt'%(dataset, dataset, (phase if phase != 'train_plain' else 'train'))
+    txt = './data/%s/%s_%s.txt'%(dataset, dataset, (phase if phase not in ['train_plain', 'tail'] else 'train'))
  
     
     if dataset != 'iNaturalist18':
@@ -103,7 +115,7 @@ def load_data(data_root, dataset, phase, batch_size, sampler_dic=None, num_worke
         set_ = IMBALANCECIFAR100(phase, imbalance_ratio=cifar_imb_ratio, root=data_root)
     else:
         print('Loading data from %s' % (txt))
-        set_ = LT_Dataset(data_root, txt, transform)
+        set_ = LT_Dataset(data_root, txt, transform, phase)
 
     if phase == 'test' and test_open:
         open_txt = './data/%s/%s_open.txt'%(dataset, dataset)
