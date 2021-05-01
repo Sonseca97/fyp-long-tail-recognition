@@ -15,3 +15,5 @@
 # python main.py --distri_rob --m_freeze --m_from 80 --description distri_m_freeze_80_epsilon_1
 # python main.py --distri_rob --m_from 1 --description distri_epsilon_1_m_From_1_update_every_epoch --m_freeze # update every epoch
 python main.py --config ./config/CIFAR100/cifar_resnet32.py --distri_rob --m_from 1 --description distri_epsilon_1_m_From_1_update_every_epoch --m_freeze --imb 0.01 # update every epoch
+python main.py --path ImageNet_LT_90_coslrres50 --distill_tail --scaling_logits --gpu 1 --config ./config/ImageNet_LT/stage_1_resnet50.py
+python main.py --config ./config/ImageNet_LT/stage_1_resnet50.py --second_dotproduct --temperature 0.5 --scaling_logits --alpha 0.5

@@ -298,6 +298,8 @@ class model ():
         if self.args.distill_tail:
             self.finetune_flag = True 
             self.load_model()
+            for params in self.networks['feat_model'].parameters():
+                params.requires_grad = False
            
             fname_final = os.path.join(self.training_opt['log_dir'], '{}_final.pkl'.format(self.args.expname))
             assert os.path.isfile(fname_final), "cannot find final centroids!"
@@ -541,12 +543,12 @@ class model ():
                 if self.args.scaling_logits:
                     self.logits_dist = scaling(self.logits_dist, self.logits)
                 self.correctness_knn = self.logits_dist.argmax(dim=1) == labels
-            
+              
                 self.target_one_hot = self.correctness_knn
                 # print(self.target_one_hot.unsqueeze(1).shape)
                 # knn_output all 0.001
                 self.knn_output = (F.softmax(self.logits_dist/ self.args.temperature, dim=1)).data
-    
+
                 _, preds_knn = torch.max(self.logits_dist, 1)
                 if self.distillmask_flag == False:
                     self.distill_mask = (preds_knn == labels)        
@@ -697,7 +699,7 @@ class model ():
                 #                 * self.args.temperature * self.args.temperature \
                 self.second_head_loss = self.args.second_head_alpha * self.criterions['PerformanceLoss'](self.second_logits[self.distill_mask], labels[self.distill_mask]) \
                             + (1-self.args.second_head_alpha) * self.kl_div_loss(self.second_linear_output[self.distill_mask], self.knn_output[self.distill_mask]) \
-                                # * self.args.temperature * self.args.temperature \
+                                 #* self.args.temperature * self.args.temperature 
                 self.second_head_loss += self.criterions['PerformanceLoss'](self.second_logits[~self.distill_mask], labels[~self.distill_mask])  
             else:
                 self.second_head_loss = self.criterions['PerformanceLoss'](self.second_logits, labels)  
@@ -727,7 +729,9 @@ class model ():
             self.disrob_loss = 0
 
         if self.args.distill_tail:
-            self.loss = 1 * self.loss_perf + 0.9 * self.kl_div_loss(self.linear_output, self.knn_output)
+            self.loss = 0.5 * self.criterions['PerformanceLoss'](self.logits[self.distill_mask], labels[self.distill_mask]) \
+                            + 0.5 * self.kl_div_loss(self.linear_output[self.distill_mask], self.knn_output[self.distill_mask])
+            self.loss += self.criterions['PerformanceLoss'](self.logits[~self.distill_mask], labels[~self.distill_mask])  
             return 
         
         if self.disrob_loss != 0:
@@ -916,7 +920,8 @@ class model ():
 
             # Set model modes and set scheduler
             # In training, step optimizer scheduler and set model to train()
-            if self.finetune_flag==False or 'CIFAR' not in self.training_opt['dataset']:
+            if self.finetune_flag==False and 'CIFAR' not in self.training_opt['dataset']:
+                print("optimize")
                 self.model_optimizer_scheduler.step()
                 if self.criterion_optimizer:
                     self.criterion_optimizer_scheduler.step()
@@ -942,7 +947,7 @@ class model ():
 
             # if epoch is m_from: calculate centroids
             # if finetuning, don't calculate
-            if epoch>=self.args.m_from and self.finetune_flag==False:
+            if epoch==self.args.m_from and self.finetune_flag==False:
                 self.feat_dict = self.get_knncentroids()
                 self.centers_un = torch.from_numpy(self.feat_dict['uncs']).to(self.device)
                 self.centers = torch.from_numpy(self.feat_dict['l2ncs']).to(self.device)
@@ -1389,11 +1394,15 @@ class model ():
         
         self.centroids = checkpoint['centroids'] if 'centroids' in checkpoint else None
         for key, model in self.networks.items():
+            # '''
+            #     abandon trained classifier
+            # '''
+            # if key == 'classifier':
+            #     print("dont initialize classifier")
+            #     continue
 
             print("Loading ", key)
-            
             weights = model_state[key]
-       
             weights = {k: weights[k] for k in weights if k in model.state_dict()}
             # model.load_state_dict(model_state[key])
 

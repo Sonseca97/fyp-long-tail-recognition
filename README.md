@@ -3,8 +3,8 @@
 
 
 ## Update notifications
-* __03/04/2020:__ Configured training settings for Places_LT
-
+* __03/04/2021:__ Configured training settings for Places_LT
+* __01/05/2021:__ Update finetuning with knowledge transfer
 ## Requirements 
 * [PyTorch](https://pytorch.org/) (tested with version == 1.7.1)
 
