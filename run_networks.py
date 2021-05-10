@@ -74,6 +74,7 @@ class model ():
         self.centers = None
         self.inputs_for_next = None
         self.labels_for_next = None
+        self.featmean = None
         self.reweight_flag = False
         self.distillmask_flag = False
         # initialize dynamic mask
@@ -147,7 +148,7 @@ class model ():
         
         # initialize memory bank
         self.normalized_features_centroids = None
-
+        self.alpha_list = [0.1, 0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0]
         print('Using steps for training.')
         self.training_data_num = len(self.data['train'].dataset)
         self.epoch_steps = int(self.training_data_num  \
@@ -534,7 +535,7 @@ class model ():
 
             if self.centers is not None:
                 # calculate distance logits 
-                self.logits_dist = self.knnclassifier(self.fc_features if self.args.second_fc else self.features, self.centers)
+                self.logits_dist = self.knnclassifier(self.fc_features if self.args.second_fc else self.features, self.centers, mean=self.featmean)
             
                 # calculate eta for scaling 
                 eta = torch.max(self.logits, dim=1)[0] / torch.max(self.logits_dist, dim=1)[0]
@@ -729,9 +730,10 @@ class model ():
             self.disrob_loss = 0
 
         if self.args.distill_tail:
-            self.loss = 0.5 * self.criterions['PerformanceLoss'](self.logits[self.distill_mask], labels[self.distill_mask]) \
-                            + 0.5 * self.kl_div_loss(self.linear_output[self.distill_mask], self.knn_output[self.distill_mask])
-            self.loss += self.criterions['PerformanceLoss'](self.logits[~self.distill_mask], labels[~self.distill_mask])  
+            self.loss =  (1-self.alpha_list[self.epoch-1]) * self.loss_perf + self.alpha_list[self.epoch-1] * self.kl_div_loss(self.linear_output, self.knn_output)
+            # self.loss = 0.5 * self.criterions['PerformanceLoss'](self.logits[self.distill_mask], labels[self.distill_mask]) \
+            #                 + 0.5 * self.kl_div_loss(self.linear_output[self.distill_mask], self.knn_output[self.distill_mask])
+            # self.loss += self.criterions['PerformanceLoss'](self.logits[~self.distill_mask], labels[~self.distill_mask])  
             return 
         
         if self.disrob_loss != 0:
@@ -1033,10 +1035,13 @@ class model ():
                 with open(fname_final, 'rb') as f:
                     data = pickle.load(f)
                 eval_dict['final_centroids'] = torch.from_numpy(data[self.args.feat_type]).to(self.device)
+                self.featmean = torch.from_numpy(data['mean']).to(self.device)
             else:
                 print("not found final_centroids") 
-                eval_dict['final_centroids'] = torch.from_numpy(self.get_knncentroids()[self.args.feat_type]).cuda()
+                data = self.get_knncentroids()
+                eval_dict['final_centroids'] = torch.from_numpy(data[self.args.feat_type]).cuda()
                 eval_list.append('final_centroids')
+                self.featmean = torch.from_numpy(data['mean']).to(self.device)
             if 'merge_logits' in self.args.expname or self.args.merge_logits:
                 try:
                     eval_dict['merge_logits'] = eval_dict['final_centroids']

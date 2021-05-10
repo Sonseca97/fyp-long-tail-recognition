@@ -116,7 +116,7 @@ output_logits = args.output_logits
 config = source_import(args.config).config
 config = update(config, args)
 config['training_opt']['cifar_imb_ratio'] = args.imb
-if args.distill_tail:
+if args.distill_tail or args.crt:
     config['training_opt']['num_epochs'] = 10
 training_opt = config['training_opt']
 if args.resample:
